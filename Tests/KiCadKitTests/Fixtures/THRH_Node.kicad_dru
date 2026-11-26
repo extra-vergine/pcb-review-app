@@ -1,0 +1,15 @@
+(version 1)
+# --- Isolation barrier PoE primary <-> secondary (IEEE 802.3 1500 Vrms functional isolation) ---
+(rule "PoE isolation"
+  (constraint clearance (min 1.9mm))
+  (condition "(A.NetName == 'VPOE' || A.NetName == 'POE_VSS' || A.NetName == '/Power/P*') && !(B.NetName == 'VPOE' || B.NetName == 'POE_VSS' || B.NetName == '/Power/P*') && B.NetName != '/Ethernet/CHASSIS' && B.NetName != 'unconnected-*'"))
+# --- JLCPCB 4-layer capabilities (conservative) ---
+(rule "JLC min hole"  (constraint hole_size (min 0.2mm)))
+(rule "JLC annular"   (constraint annular_width (min 0.13mm)))
+(rule "JLC edge"      (constraint edge_clearance (min 0.3mm)))
+(rule "JLC silk"      (layer "?.Silkscreen") (constraint text_height (min 0.8mm)))
+# --- Routing skill: ground pour stays 1.5-2x trace width away from the Ethernet differential pairs ---
+(rule "Diff pair to pour"
+  (constraint clearance (min 0.55mm))
+  (condition "(A.NetName == '/Ethernet/ETH_TX?' || A.NetName == '/Ethernet/ETH_RX?') && B.Type == 'Zone'"))
+# --- Routing skill: outermost 1 mm of the board carries no copper pour: zone outlines are drawn 1.0 mm inside the board edge ---
