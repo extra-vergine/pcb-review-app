@@ -129,7 +129,9 @@ struct BoardScene {
 
         self.layers = infos
         // Bottom copper first so the top layer draws over it, then technical layers.
-        self.drawOrder = copperNames.reversed() + infos.filter { !$0.isCopper }.map(\.name).reversed()
+        let copperOrder: [String] = Array(copperNames.reversed())
+        let technicalOrder: [String] = Array(infos.filter { !$0.isCopper }.map(\.name).reversed())
+        self.drawOrder = copperOrder + technicalOrder
         self.paths = paths
         self.viaPaths = viaPaths
         self.holes = holes
