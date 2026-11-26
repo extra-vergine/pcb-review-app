@@ -2,6 +2,7 @@ name: Tests
 
 on:
   push:
+    branches: [main]
   pull_request:
 
 jobs:
@@ -17,3 +18,12 @@ jobs:
         run: swift test
       - name: Inspect sample board
         run: swift run kicad-inspect Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb
+
+  macos-app:
+    # Compile-only check of the SwiftUI app. macOS minutes cost more, so this
+    # job only builds; the tests run on Linux above.
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build app
+        run: swift build --product PCBReview
