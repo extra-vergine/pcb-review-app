@@ -1,0 +1,19 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    # The KiCadKit library is plain Foundation, so its tests run on cheap Linux runners.
+    runs-on: ubuntu-latest
+    container: swift:6.0
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test
+      - name: Inspect sample board
+        run: swift run kicad-inspect Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb
