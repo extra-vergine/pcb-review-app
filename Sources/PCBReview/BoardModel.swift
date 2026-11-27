@@ -362,10 +362,11 @@ final class BoardModel: ObservableObject {
                 f.id = idBase + i
                 return f
             }
+            let status = message
             await MainActor.run {
                 guard self.url == url else { return }
                 self.isRunningDRC = false
-                self.drcStatus = message
+                self.drcStatus = status
                 if let result { self.drcFindings = result }
             }
         }
