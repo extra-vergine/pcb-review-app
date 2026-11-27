@@ -18,6 +18,10 @@ jobs:
         run: swift test
       - name: Inspect sample board
         run: swift run kicad-inspect Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb
+      - name: Check sample board against JLCPCB and PCBWay
+        run: |
+          swift run kicad-inspect Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb --check jlcpcb
+          swift run kicad-inspect Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb --check pcbway
 
   macos-app:
     # Compile-only check of the SwiftUI app. macOS minutes cost more, so this

@@ -1,0 +1,156 @@
+{
+  "id": "pcbway",
+  "name": "PCBWay",
+  "scope": "Rigid FR-4 \"Standard PCB\", 1 oz outer copper",
+  "checked": "2026-11-27",
+  "sources": [
+    {
+      "id": "cap",
+      "title": "PCBWay PCB Capabilities",
+      "url": "https://www.pcbway.com/capabilities.html"
+    },
+    {
+      "id": "tol",
+      "title": "PCBWay PCB Manufacturing Tolerances",
+      "url": "https://www.pcbway.com/pcb_prototype/PCB_Manufacturing_tolerances.html"
+    }
+  ],
+  "notes": [
+    "The capabilities page and the tolerances page disagree on the drill range (0.15–6.0 mm against 0.2–6.3 mm), the board thickness (0.2–3.2 mm against 0.4–2.4 mm) and the maximum size. Where they differ the stricter value is the limit, and for small drills the other page's value is the recommendation.",
+    "Values marked unverified come from the Advanced PCB table, whose column headings could not be read reliably. Their findings are warnings, not errors."
+  ],
+  "rules": [
+    {
+      "id": "min_track_width",
+      "value": 0.1,
+      "source": "cap",
+      "quote": "Min Trace 0.1mm/4mil",
+      "verified": true
+    },
+    {
+      "id": "min_clearance",
+      "value": 0.1,
+      "source": "cap",
+      "quote": "Min Spacing 4mil(0.1mm)",
+      "verified": true
+    },
+    {
+      "id": "min_pad_to_track",
+      "value": 0.1,
+      "recommended": 0.12,
+      "source": "tol",
+      "quote": "Width between pad and trace (1 oz): normal 0.12 mm, min 0.1 mm",
+      "verified": true
+    },
+    {
+      "id": "min_via_drill",
+      "value": 0.15,
+      "recommended": 0.2,
+      "source": "cap",
+      "quote": "Min CNC drill 0.15mm (tolerances page: 0.2 mm); holes under 0.2 mm cost extra",
+      "verified": true
+    },
+    {
+      "id": "min_via_annular_ring",
+      "value": 0.15,
+      "source": "cap",
+      "quote": "Annular ring 0.15mm(6mil) minimum for pads with vias; tolerances page: normal via pad single side width 0.15 mm",
+      "verified": true
+    },
+    {
+      "id": "min_pth_drill",
+      "value": 0.15,
+      "recommended": 0.2,
+      "source": "cap",
+      "quote": "CNC drill 0.15-6.0mm (tolerances page: 0.2-6.3 mm)",
+      "verified": true
+    },
+    {
+      "id": "max_pth_drill",
+      "value": 6.0,
+      "source": "cap",
+      "quote": "CNC drill 0.15-6.0mm",
+      "verified": true
+    },
+    {
+      "id": "min_pth_annular_ring",
+      "value": 0.15,
+      "recommended": 0.2,
+      "source": "tol",
+      "quote": "PTH pad single side width (1 oz) 0.2 mm; capabilities page: 0.15 mm minimum annular ring",
+      "verified": true
+    },
+    {
+      "id": "min_via_hole_to_hole",
+      "value": 0.28,
+      "source": "cap",
+      "quote": "Advanced PCB, hole to hole, via: 11 mil or more",
+      "verified": false
+    },
+    {
+      "id": "min_pad_hole_to_hole",
+      "value": 0.4,
+      "source": "cap",
+      "quote": "Advanced PCB, hole to hole, component hole: 16 mil or more",
+      "verified": false
+    },
+    {
+      "id": "min_via_hole_to_track",
+      "value": 0.18,
+      "recommended": 0.2,
+      "source": "tol",
+      "quote": "Via to copper: normal 0.2 mm, min 0.18 mm",
+      "verified": true
+    },
+    {
+      "id": "min_copper_to_edge",
+      "value": 0.25,
+      "recommended": 0.3,
+      "source": "tol",
+      "quote": "Profile to copper: normal 0.3 mm, min 0.25 mm (V-cut line to copper 0.35 mm min)",
+      "verified": true
+    },
+    {
+      "id": "min_silk_line_width",
+      "value": 0.15,
+      "source": "cap",
+      "quote": "Min character width 0.15mm",
+      "verified": true
+    },
+    {
+      "id": "min_silk_text_height",
+      "value": 0.8,
+      "source": "cap",
+      "quote": "Min character height 0.8mm, width to height 1:5",
+      "verified": true
+    },
+    {
+      "id": "min_plated_slot",
+      "value": 0.5,
+      "source": "cap",
+      "quote": "Advanced PCB: plated slot 0.5 mm or more",
+      "verified": false
+    },
+    {
+      "id": "min_npth_slot",
+      "value": 0.8,
+      "source": "cap",
+      "quote": "Advanced PCB: NPTH slot 0.8 mm or more",
+      "verified": false
+    },
+    {
+      "id": "min_board_thickness",
+      "value": 0.4,
+      "source": "tol",
+      "quote": "Board thickness 0.4-2.4mm (capabilities page: 0.2-3.2 mm)",
+      "verified": true
+    },
+    {
+      "id": "max_board_thickness",
+      "value": 2.4,
+      "source": "tol",
+      "quote": "Board thickness 0.4-2.4mm (capabilities page: 0.2-3.2 mm)",
+      "verified": true
+    }
+  ]
+}

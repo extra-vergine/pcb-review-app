@@ -1,12 +1,14 @@
 import Foundation
 import KiCadKit
 
-// Prints a summary of a KiCad board and its project settings.
-// Usage: kicad-inspect path/to/board.kicad_pcb
+// Prints a summary of a KiCad board and its project settings, and with
+// --check runs the design checks (KiCad rules plus a fab profile).
+// Usage: kicad-inspect path/to/board.kicad_pcb [--check jlcpcb|pcbway|kicad]
 
 let args = CommandLine.arguments
-guard args.count == 2 else {
-    FileHandle.standardError.write("usage: kicad-inspect <board.kicad_pcb>\n".data(using: .utf8)!)
+let checkProfile: String? = args.count == 4 && args[2] == "--check" ? args[3] : nil
+guard args.count == 2 || checkProfile != nil else {
+    FileHandle.standardError.write("usage: kicad-inspect <board.kicad_pcb> [--check jlcpcb|pcbway|kicad]\n".data(using: .utf8)!)
     exit(2)
 }
 
@@ -40,6 +42,22 @@ do {
         print("\nCustom rules (\(r.rules.count)): " + r.rules.map(\.name).joined(separator: ", "))
     }
     for w in input.warnings { print("warning: \(w)") }
+
+    if let id = checkProfile {
+        let profile = id == "kicad" ? nil : try FabProfiles.load(id: id)
+        let report = DesignChecker(input: input, profile: profile).run()
+        print("\nDesign checks (\(String(format: "%.1f", report.seconds)) s): \(report.count(.error)) errors, \(report.count(.warning)) warnings, \(report.count(.info)) notes")
+        for a in report.applied { print("  using \(a)") }
+        let groups = Dictionary(grouping: report.findings) { "\($0.suite.title) / \($0.kind.title)" }
+        for key in groups.keys.sorted() {
+            let list = groups[key]!
+            print("\n  \(key): \(list.count)")
+            for f in list.prefix(6) {
+                print("    [\(f.severity.title)] " + String(format: "(%.2f, %.2f) ", f.location.x, f.location.y) + f.message + "  <" + f.rule.title + ">")
+            }
+            if list.count > 6 { print("    ... and \(list.count - 6) more") }
+        }
+    }
 } catch {
     FileHandle.standardError.write("error: \(error)\n".data(using: .utf8)!)
     exit(1)

@@ -6,7 +6,7 @@ var products: [Product] = [
     .executable(name: "kicad-inspect", targets: ["kicad-inspect"]),
 ]
 var targets: [Target] = [
-    .target(name: "KiCadKit"),
+    .target(name: "KiCadKit", resources: [.copy("Profiles")]),
     .executableTarget(name: "kicad-inspect", dependencies: ["KiCadKit"]),
     .testTarget(
         name: "KiCadKitTests",
