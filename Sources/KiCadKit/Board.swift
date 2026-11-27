@@ -14,6 +14,14 @@ public struct Board: Sendable {
     public var stackup: [StackupLayer] = []
     /// Board thickness from `(general (thickness ..))`, mm.
     public var thickness: Double?
+    /// The drill/place origin from `(setup (aux_axis_origin x y))`.
+    public var auxAxisOrigin: Point?
+    /// The grid origin from `(setup (grid_origin x y))`.
+    public var gridOrigin: Point?
+
+    /// The user origin used for coordinates and rulers: the drill/place
+    /// origin if set, else the grid origin, else (0, 0).
+    public var userOrigin: Point { auxAxisOrigin ?? gridOrigin ?? Point(0, 0) }
 
     /// Every net name referenced anywhere on the board, sorted. KiCad 10 files
     /// have no numbered net table: items name their net directly.
