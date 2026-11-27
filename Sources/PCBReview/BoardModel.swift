@@ -14,16 +14,19 @@ enum ViewTab: Hashable {
     }
 }
 
-/// A corner of the board outline that can serve as the origin.
+/// A point of the board outline that can serve as the origin: a corner or the centre.
 enum OriginCorner: String, CaseIterable {
-    case lowerLeft = "lower left", lowerRight = "lower right", upperRight = "upper right", upperLeft = "upper left"
+    case lowerLeft = "lower left", lowerRight = "lower right", center = "centre", upperRight = "upper right", upperLeft = "upper left"
 
-    var next: OriginCorner {
+    /// The cycle is file origin → lower left → lower right → centre → upper right → upper left → file origin;
+    /// nil stands for the board file's own origin.
+    var next: OriginCorner? {
         switch self {
         case .lowerLeft: return .lowerRight
-        case .lowerRight: return .upperRight
+        case .lowerRight: return .center
+        case .center: return .upperRight
         case .upperRight: return .upperLeft
-        case .upperLeft: return .lowerLeft
+        case .upperLeft: return nil
         }
     }
 
@@ -31,6 +34,7 @@ enum OriginCorner: String, CaseIterable {
         switch self {
         case .lowerLeft: return Point(b.minX, b.maxY)
         case .lowerRight: return Point(b.maxX, b.maxY)
+        case .center: return Point((b.minX + b.maxX) / 2, (b.minY + b.maxY) / 2)
         case .upperRight: return Point(b.maxX, b.minY)
         case .upperLeft: return Point(b.minX, b.minY)
         }
@@ -436,20 +440,21 @@ final class BoardModel: ObservableObject {
     /// Which corner the origin is at, if it is at one.
     var originDescription: String {
         if let c = originCorner { return c.rawValue }
-        guard let board = input?.board, let b = board.outlineBounds else { return "board origin" }
+        guard let board = input?.board, let b = board.outlineBounds else { return "file origin" }
         let o = board.userOrigin
-        return OriginCorner.allCases.first { $0.point(in: b).distance(to: o) < 0.01 }?.rawValue ?? "board origin"
+        if let c = OriginCorner.allCases.first(where: { $0.point(in: b).distance(to: o) < 0.01 }) {
+            return "file origin (\(c.rawValue))"
+        }
+        return "file origin"
     }
 
-    /// Moves the origin to the next corner: lower left → lower right → upper right → upper left → …
+    /// Moves the origin along the cycle: file origin → lower left → lower right → centre → upper right → upper left → file origin.
     func cycleOrigin() {
-        guard let board = input?.board, let b = board.outlineBounds else { return }
+        guard input?.board.outlineBounds != nil else { return }
         if let c = originCorner {
             originCorner = c.next
         } else {
-            let o = board.userOrigin
-            let current = OriginCorner.allCases.first { $0.point(in: b).distance(to: o) < 0.01 }
-            originCorner = current?.next ?? .lowerLeft
+            originCorner = .lowerLeft
         }
     }
 

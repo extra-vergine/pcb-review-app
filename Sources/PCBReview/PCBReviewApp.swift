@@ -85,7 +85,7 @@ struct ViewCommands: Commands {
             Divider()
             Button("Clear All Guides") { model.clearGuides() }
                 .disabled(model.guides.isEmpty)
-            Button("Next Origin Corner") { model.cycleOrigin() }
+            Button("Next Origin") { model.cycleOrigin() }
             Divider()
             Button("Clear Selection") { model.selection = nil; model.selectedFindingID = nil }
                 .keyboardShortcut(.escape, modifiers: [])
