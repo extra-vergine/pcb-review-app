@@ -35,6 +35,8 @@ public enum BoardParser {
         board.thickness = root.child("general")?.value("thickness")
         board.layers = parseLayers(root.child("layers"))
         board.stackup = parseStackup(root.child("setup")?.child("stackup"))
+        board.auxAxisOrigin = root.child("setup")?.point("aux_axis_origin")
+        board.gridOrigin = root.child("setup")?.point("grid_origin")
 
         for item in root.items.dropFirst() {
             switch item.head ?? "" {

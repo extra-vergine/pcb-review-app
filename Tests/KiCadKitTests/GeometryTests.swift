@@ -72,3 +72,38 @@ final class GeometryTests: XCTestCase {
         XCTAssertNil(board.hitTest(via.position, visibleLayers: []))
     }
 }
+
+final class DimensionTests: XCTestCase {
+    var board: Board { BoardParserTests.input.board }
+
+    func testOrigin() {
+        XCTAssertEqual(board.auxAxisOrigin, Point(100, 140))
+        XCTAssertEqual(board.userOrigin, Point(100, 140))
+    }
+
+    func testMountingHoles() {
+        XCTAssertEqual(Set(board.mountingHoles.map(\.position)),
+                       [Point(104, 104), Point(104, 136), Point(196, 136), Point(196, 104)])
+    }
+
+    func testOverallDimensions() throws {
+        XCTAssertEqual(try XCTUnwrap(board.overallDimension(.horizontal)).length, 100, accuracy: 1e-9)
+        XCTAssertEqual(try XCTUnwrap(board.overallDimension(.vertical)).length, 40, accuracy: 1e-9)
+    }
+
+    func testMountingHoleDimensions() {
+        let h = board.mountingHoleDimensions(.horizontal)
+        XCTAssertEqual(h.map(\.length), [92])
+        let v = board.mountingHoleDimensions(.vertical)
+        XCTAssertEqual(v.map(\.length), [32])
+        XCTAssertEqual(v.first?.lineAt, 97)
+    }
+
+    func testUnits() {
+        XCTAssertEqual(LengthUnit.mm.next, .inch)
+        XCTAssertEqual(LengthUnit.mil.next, .mm)
+        XCTAssertEqual(LengthUnit.inch.format(25.4), "1.0000 in")
+        XCTAssertEqual(LengthUnit.mil.format(0.254), "10.0 mil")
+        XCTAssertEqual(LengthUnit.point.value(25.4), 72, accuracy: 1e-9)
+    }
+}
