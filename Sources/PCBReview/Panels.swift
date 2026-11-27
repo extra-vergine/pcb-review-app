@@ -13,8 +13,16 @@ struct LayerPanel: View {
                 ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
             }
             Section("Show") {
+                Toggle("Origin", isOn: $model.showOrigin)
+                Toggle("Rulers (⌘R)", isOn: $model.showRulers)
                 Toggle("Zone fills", isOn: $model.showZoneFills)
                 Toggle("Vias", isOn: $model.showVias)
+            }
+            Section("Dimensions (User.Drawings)") {
+                Toggle("Board, horizontal", isOn: $model.showBoardWidth)
+                Toggle("Board, vertical", isOn: $model.showBoardHeight)
+                Toggle("Mounting holes, horizontal", isOn: $model.showHoleSpacingX)
+                Toggle("Mounting holes, vertical", isOn: $model.showHoleSpacingY)
             }
             Section {
                 HStack {
@@ -27,20 +35,66 @@ struct LayerPanel: View {
         .listStyle(.sidebar)
     }
 
+    /// A layer row: a green check mark activates or deactivates the layer.
     private func row(_ layer: LayerInfo) -> some View {
-        Toggle(isOn: Binding(
-            get: { model.visibleLayers.contains(layer.name) },
-            set: { _ in model.toggle(layer.name) }
-        )) {
-            HStack(spacing: 6) {
+        let active = model.isActive(layer.name)
+        return Button {
+            model.toggle(layer.name)
+        } label: {
+            HStack(spacing: 7) {
+                Image(systemName: active ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(active ? Color.green : Color.secondary)
+                    .font(.system(size: 14))
                 RoundedRectangle(cornerRadius: 2)
                     .fill(layer.color)
                     .frame(width: 12, height: 12)
+                    .opacity(active ? 1 : 0.4)
                 Text(layer.displayName)
                     .lineLimit(1)
+                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
         }
-        .toggleStyle(.checkbox)
+        .buttonStyle(.plain)
+        .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
+    }
+}
+
+/// Tabs above the canvas: all active layers, then each copper layer. ⌘1, ⌘2, … select them.
+struct LayerTabBar: View {
+    @EnvironmentObject var model: BoardModel
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 2) {
+                ForEach(Array(model.tabs.enumerated()), id: \.offset) { index, tab in
+                    let selected = model.tab == tab
+                    Button {
+                        model.tab = tab
+                    } label: {
+                        HStack(spacing: 6) {
+                            if case .copper(let name) = tab, let info = model.layerList.first(where: { $0.name == name }) {
+                                RoundedRectangle(cornerRadius: 2).fill(info.color).frame(width: 10, height: 10)
+                            }
+                            Text(model.title(of: tab))
+                            if index < 9 {
+                                Text("⌘\(index + 1)").foregroundStyle(.secondary).font(.caption)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(selected ? Color.accentColor.opacity(0.22) : Color.clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 5)
+        }
+        .background(.bar)
     }
 }
 

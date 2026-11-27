@@ -7,11 +7,13 @@ import KiCadKit
 struct PCBReviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = BoardModel()
+    @StateObject private var viewport = Viewport()
 
     var body: some Scene {
         WindowGroup("PCB Review") {
             ContentView()
                 .environmentObject(model)
+                .environmentObject(viewport)
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     // `swift run PCBReview path/to/board.kicad_pcb` opens that board.
@@ -26,12 +28,36 @@ struct PCBReviewApp: App {
                 Button("Open Board…") { model.showOpenPanel() }
                     .keyboardShortcut("o")
             }
-            CommandGroup(after: .toolbar) {
-                Button("Zoom to Fit") { model.fitRequest += 1 }
-                    .keyboardShortcut("0")
-                Divider()
-                Button("Clear Selection") { model.selection = nil }
-                    .keyboardShortcut(.escape, modifiers: [])
+            ViewCommands(model: model, viewport: viewport)
+        }
+    }
+}
+
+/// View menu items: zoom, rulers, selection and the layer tabs (⌘1, ⌘2, …).
+struct ViewCommands: Commands {
+    @ObservedObject var model: BoardModel
+    let viewport: Viewport
+
+    var body: some Commands {
+        CommandGroup(after: .toolbar) {
+            Button("Zoom In") { viewport.zoomCentered(by: 1.25) }
+                .keyboardShortcut("+")
+            Button("Zoom Out") { viewport.zoomCentered(by: 0.8) }
+                .keyboardShortcut("-")
+            Button("Zoom to Fit") { model.fitRequest += 1 }
+                .keyboardShortcut("0")
+            Divider()
+            Button(model.showRulers ? "Hide Rulers" : "Show Rulers") { model.showRulers.toggle() }
+                .keyboardShortcut("r")
+            Button("Switch Units (\(model.units.next.rawValue))") { model.units = model.units.next }
+            Divider()
+            Button("Clear Selection") { model.selection = nil }
+                .keyboardShortcut(.escape, modifiers: [])
+        }
+        CommandMenu("Layers") {
+            ForEach(Array(model.tabs.prefix(9).enumerated()), id: \.offset) { index, tab in
+                Button(model.title(of: tab)) { model.tab = tab }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
             }
         }
     }
@@ -56,9 +82,13 @@ struct ContentView: View {
             if let input = model.input {
                 HSplitView {
                     LayerPanel()
-                        .frame(minWidth: 180, idealWidth: 210, maxWidth: 280)
-                    BoardCanvasView(board: input.board)
-                        .frame(minWidth: 400)
+                        .frame(minWidth: 200, idealWidth: 230, maxWidth: 300)
+                    VStack(spacing: 0) {
+                        LayerTabBar()
+                        Divider()
+                        BoardCanvasView(board: input.board)
+                    }
+                    .frame(minWidth: 400)
                     InspectorPanel()
                         .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
                 }

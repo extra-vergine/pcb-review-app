@@ -2,56 +2,73 @@ import AppKit
 import SwiftUI
 import KiCadKit
 
-/// The board drawing: layers, zoom (pinch, ⌘-scroll or mouse wheel), pan
-/// (two-finger scroll or drag) and click to select.
+/// The board drawing: layers, zoom (pinch, ⌘-scroll, mouse wheel, ⌘+ / ⌘−),
+/// pan (two-finger scroll or drag), click to select, rulers, origin and dimensions.
 struct BoardCanvasView: View {
     let board: Board
     @EnvironmentObject var model: BoardModel
-
-    /// Pixels per millimetre.
-    @State private var scale: CGFloat = 4
-    /// Screen position of board coordinate (0, 0).
-    @State private var offset: CGSize = .zero
-    @State private var hover: Point?
-    @State private var viewSize: CGSize = .zero
+    @EnvironmentObject var viewport: Viewport
 
     static let background = Color(red: 0.07, green: 0.08, blue: 0.09)
     static let substrate = Color(red: 0.11, green: 0.14, blue: 0.13)
+    static let rulerSize: CGFloat = 22
 
     var body: some View {
         GeometryReader { geo in
-            ZStack(alignment: .bottomLeading) {
-                canvas
+            ZStack(alignment: .topLeading) {
+                boardCanvas
+                overlayCanvas
+                    .allowsHitTesting(false)
                 EventCaptureView(
-                    onClick: { model.select(at: toBoard($0)) },
-                    onDrag: { d in offset.width += d.width; offset.height += d.height },
+                    onClick: { model.select(at: viewport.toBoard($0)) },
+                    onDrag: { viewport.pan(by: $0) },
                     onScroll: handleScroll,
-                    onMagnify: { m, loc in zoom(by: 1 + m, at: loc) },
-                    onHover: { hover = $0.map(toBoard) }
+                    onMagnify: { m, loc in viewport.zoom(by: 1 + m, at: loc) },
+                    onHover: { viewport.hover = $0.map(viewport.toBoard) }
                 )
+                if model.showRulers {
+                    RulersView(origin: board.userOrigin)
+                }
                 statusBar
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
-            .onAppear { viewSize = geo.size; fit() }
+            .onAppear {
+                viewport.size = geo.size
+                fit()
+            }
             .onChange(of: geo.size) { newSize in
-                let old = viewSize
-                viewSize = newSize
-                if old == .zero { fit() }
+                let first = viewport.size == .zero
+                viewport.size = newSize
+                if first { fit() }
             }
             .onChange(of: model.fitRequest) { _ in fit() }
         }
         .clipped()
     }
 
-    // MARK: Drawing
+    private func fit() {
+        if let b = model.scene?.bounds { viewport.fit(b) }
+    }
 
-    private var canvas: some View {
+    private func handleScroll(_ delta: CGSize, precise: Bool, zoomModifier: Bool, location: CGPoint) {
+        if precise && !zoomModifier {
+            viewport.pan(by: delta)
+        } else {
+            let speed: CGFloat = precise ? 0.01 : 0.1
+            viewport.zoom(by: exp(delta.height * speed), at: location)
+        }
+    }
+
+    // MARK: Board
+
+    private var boardCanvas: some View {
         let scene = model.scene
-        let visible = model.visibleLayers
+        let drawn = model.drawnLayers
         let showFills = model.showZoneFills
         let showVias = model.showVias
         let highlight = model.highlight
-        let scale = self.scale
-        let offset = self.offset
+        let scale = viewport.scale
+        let offset = viewport.offset
 
         return Canvas { ctx, size in
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.background))
@@ -63,12 +80,11 @@ struct BoardCanvasView: View {
             c.fill(Path(CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height)), with: .color(Self.substrate))
 
             let dim: Double = highlight?.net == nil ? 1 : 0.45
-            var anyCopperVisible = false
-            for layer in scene.drawOrder where visible.contains(layer) {
+            var anyCopperDrawn = false
+            for layer in scene.drawOrder where drawn.contains(layer) {
                 guard let lp = scene.paths[layer] else { continue }
                 let color = scene.color(of: layer)
-                let isCopper = layer.hasSuffix(".Cu")
-                if isCopper { anyCopperVisible = true }
+                if layer.hasSuffix(".Cu") { anyCopperDrawn = true }
                 if showFills { c.fill(lp.zoneFills, with: .color(color.opacity(0.32 * dim))) }
                 for g in lp.tracks {
                     c.stroke(g.path, with: .color(color.opacity(0.9 * dim)),
@@ -82,33 +98,68 @@ struct BoardCanvasView: View {
                 }
             }
 
-            if anyCopperVisible {
+            if anyCopperDrawn {
                 if showVias { c.fill(scene.viaPaths, with: .color(Color(white: 0.72).opacity(dim))) }
                 c.fill(scene.holes, with: .color(Self.background))
             }
 
             if let h = highlight {
                 let glow = Color.white.opacity(0.55)
-                for layer in scene.drawOrder where visible.contains(layer) {
+                for layer in scene.drawOrder where drawn.contains(layer) {
                     guard let lp = h.netPaths[layer] else { continue }
                     for g in lp.tracks {
                         c.stroke(g.path, with: .color(glow), style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
                     }
                     c.fill(lp.pads, with: .color(glow))
                 }
-                if showVias { c.fill(h.viaPaths, with: .color(glow)) }
+                if showVias && anyCopperDrawn { c.fill(h.viaPaths, with: .color(glow)) }
                 c.stroke(h.selectedOutline, with: .color(.cyan),
                          style: StrokeStyle(lineWidth: 2 / scale, lineCap: .round, lineJoin: .round))
             }
         }
     }
 
-    private var statusBar: some View {
-        HStack(spacing: 12) {
-            if let p = hover {
-                Text(String(format: "X %.3f  Y %.3f mm", p.x, p.y))
+    // MARK: Origin and dimensions (drawn in screen space so text and arrows keep their size)
+
+    private var overlayCanvas: some View {
+        let dims = model.dimensions
+        let units = model.units
+        let showOrigin = model.showOrigin
+        let origin = board.userOrigin
+        let dimColor = model.scene?.color(of: BoardModel.drawingsLayer) ?? .gray
+        let vp = (scale: viewport.scale, offset: viewport.offset)
+        func screen(_ p: Point) -> CGPoint {
+            CGPoint(x: CGFloat(p.x) * vp.scale + vp.offset.width, y: CGFloat(p.y) * vp.scale + vp.offset.height)
+        }
+
+        return Canvas { ctx, _ in
+            for d in dims {
+                DimensionRenderer.draw(d, in: ctx, color: dimColor, units: units, toScreen: screen)
             }
-            Text(String(format: "%.0f px/mm", scale))
+            if showOrigin {
+                let o = screen(origin)
+                var cross = Path()
+                cross.move(to: CGPoint(x: o.x - 12, y: o.y)); cross.addLine(to: CGPoint(x: o.x + 12, y: o.y))
+                cross.move(to: CGPoint(x: o.x, y: o.y - 12)); cross.addLine(to: CGPoint(x: o.x, y: o.y + 12))
+                let ring = Path(ellipseIn: CGRect(x: o.x - 6, y: o.y - 6, width: 12, height: 12))
+                let originColor = Color(red: 0.35, green: 0.85, blue: 0.95)
+                ctx.stroke(cross, with: .color(originColor), lineWidth: 1.2)
+                ctx.stroke(ring, with: .color(originColor), lineWidth: 1.2)
+            }
+        }
+    }
+
+    // MARK: Status bar
+
+    private var statusBar: some View {
+        let units = model.units
+        let origin = board.userOrigin
+        return HStack(spacing: 12) {
+            if let p = viewport.hover {
+                // Relative to the origin, with Y pointing up.
+                Text("X \(units.format(p.x - origin.x, withUnit: false))  Y \(units.format(origin.y - p.y, withUnit: false)) \(units.rawValue)")
+            }
+            Text(String(format: "%.0f px/mm", viewport.scale))
             if let net = model.highlight?.net {
                 Text("Net: \(net)")
             }
@@ -120,37 +171,203 @@ struct BoardCanvasView: View {
         .padding(8)
         .allowsHitTesting(false)
     }
+}
 
-    // MARK: Navigation
+/// Draws one linear dimension KiCad-style: extension lines, a dimension line
+/// with arrows, and the length as text.
+enum DimensionRenderer {
+    static func draw(_ d: LinearDimension, in ctx: GraphicsContext, color: Color, units: LengthUnit,
+                     toScreen: (Point) -> CGPoint) {
+        let horizontal = d.axis == .horizontal
+        // Dimension line end points on the board.
+        let a = horizontal ? Point(d.from.x, d.lineAt) : Point(d.lineAt, d.from.y)
+        let b = horizontal ? Point(d.to.x, d.lineAt) : Point(d.lineAt, d.to.y)
+        let sa = toScreen(a), sb = toScreen(b)
+        let fa = toScreen(d.from), fb = toScreen(d.to)
 
-    private func toBoard(_ p: CGPoint) -> Point {
-        Point(Double((p.x - offset.width) / scale), Double((p.y - offset.height) / scale))
-    }
+        // Extension lines from just off each feature to a little past the dimension line.
+        var ext = Path()
+        for (f, s) in [(fa, sa), (fb, sb)] {
+            let dx = s.x - f.x, dy = s.y - f.y
+            let len = max(hypot(dx, dy), 0.001)
+            let ux = dx / len, uy = dy / len
+            ext.move(to: CGPoint(x: f.x + ux * 4, y: f.y + uy * 4))
+            ext.addLine(to: CGPoint(x: s.x + ux * 6, y: s.y + uy * 6))
+        }
+        ctx.stroke(ext, with: .color(color.opacity(0.8)), lineWidth: 0.8)
 
-    private func zoom(by factor: CGFloat, at location: CGPoint) {
-        let newScale = min(max(scale * factor, 0.5), 3000)
-        let k = newScale / scale
-        offset.width = location.x - (location.x - offset.width) * k
-        offset.height = location.y - (location.y - offset.height) * k
-        scale = newScale
-    }
+        var line = Path()
+        line.move(to: sa); line.addLine(to: sb)
+        ctx.stroke(line, with: .color(color), lineWidth: 1)
 
-    private func handleScroll(_ delta: CGSize, precise: Bool, zoomModifier: Bool, location: CGPoint) {
-        if precise && !zoomModifier {
-            offset.width += delta.width
-            offset.height += delta.height
+        // Arrow heads pointing outwards to the extension lines.
+        let dx = sb.x - sa.x, dy = sb.y - sa.y
+        let len = max(hypot(dx, dy), 0.001)
+        let ux = dx / len, uy = dy / len
+        func arrow(at p: CGPoint, dir: CGFloat) -> Path {
+            var path = Path()
+            let size: CGFloat = 7, half: CGFloat = 2.6
+            let back = CGPoint(x: p.x + ux * size * dir, y: p.y + uy * size * dir)
+            path.move(to: p)
+            path.addLine(to: CGPoint(x: back.x - uy * half, y: back.y + ux * half))
+            path.addLine(to: CGPoint(x: back.x + uy * half, y: back.y - ux * half))
+            path.closeSubpath()
+            return path
+        }
+        if len > 20 {
+            ctx.fill(arrow(at: sa, dir: 1), with: .color(color))
+            ctx.fill(arrow(at: sb, dir: -1), with: .color(color))
+        }
+
+        // Label, outside the board: above horizontal lines, left of vertical ones on the left side.
+        let label = Text(units.format(d.length))
+            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .foregroundColor(color)
+        let mid = CGPoint(x: (sa.x + sb.x) / 2, y: (sa.y + sb.y) / 2)
+        if horizontal {
+            ctx.draw(label, at: CGPoint(x: mid.x, y: mid.y - 3), anchor: .bottom)
         } else {
-            let speed: CGFloat = precise ? 0.01 : 0.1
-            zoom(by: exp(delta.height * speed), at: location)
+            var t = ctx
+            t.translateBy(x: mid.x - 3, y: mid.y)
+            t.rotate(by: .degrees(-90))
+            t.draw(label, at: .zero, anchor: .bottom)
+        }
+    }
+}
+
+/// Top and left rulers. Values are relative to the board origin, X to the
+/// right and Y up. Click a ruler to switch units (mm → in → pt → mil).
+struct RulersView: View {
+    let origin: Point
+    @EnvironmentObject var model: BoardModel
+    @EnvironmentObject var viewport: Viewport
+
+    private let thickness = BoardCanvasView.rulerSize
+    private static let fill = Color(red: 0.13, green: 0.14, blue: 0.16).opacity(0.94)
+    private static let ink = Color.white.opacity(0.75)
+    private static let accent = Color(red: 0.35, green: 0.85, blue: 0.95)
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            ruler(horizontal: true)
+                .frame(height: thickness)
+                .padding(.leading, thickness)
+            ruler(horizontal: false)
+                .frame(width: thickness)
+                .padding(.top, thickness)
+            Text(model.units.rawValue)
+                .font(.system(size: 9, weight: .semibold))
+                .foregroundStyle(Self.accent)
+                .frame(width: thickness, height: thickness)
+                .background(Self.fill)
+                .contentShape(Rectangle())
+                .onTapGesture { model.units = model.units.next }
+                .help("Click a ruler to switch units")
         }
     }
 
-    private func fit() {
-        guard let b = model.scene?.bounds, viewSize.width > 0, viewSize.height > 0, b.width > 0, b.height > 0 else { return }
-        let s = min(viewSize.width / b.width, viewSize.height / b.height) * 0.92
-        scale = s
-        offset = CGSize(width: viewSize.width / 2 - (b.minX + b.width / 2) * s,
-                        height: viewSize.height / 2 - (b.minY + b.height / 2) * s)
+    private func ruler(horizontal: Bool) -> some View {
+        let unit = model.units
+        let scale = viewport.scale
+        let offset = viewport.offset
+        let hover = viewport.hover
+        let origin = self.origin
+        let thickness = self.thickness
+
+        return Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.fill))
+            let mmPerUnit = unit.millimetres
+            let pxPerUnit = Double(scale) * mmPerUnit
+            let major = RulerTicks.step(pixelsPerUnit: pxPerUnit, minSpacing: 70)
+            let minor = RulerTicks.minor(for: major)
+            // The ruler's own drawing starts after the corner square.
+            let shift = thickness
+            let length = Double(horizontal ? size.width : size.height)
+
+            // Screen position (in this ruler's coordinates) of a value in units.
+            func pos(_ u: Double) -> Double {
+                if horizontal {
+                    return (origin.x + u * mmPerUnit) * Double(scale) + Double(offset.width) - Double(shift)
+                } else {
+                    return (origin.y - u * mmPerUnit) * Double(scale) + Double(offset.height) - Double(shift)
+                }
+            }
+            func value(at screen: Double) -> Double {
+                if horizontal {
+                    return ((screen + Double(shift) - Double(offset.width)) / Double(scale) - origin.x) / mmPerUnit
+                } else {
+                    return (origin.y - (screen + Double(shift) - Double(offset.height)) / Double(scale)) / mmPerUnit
+                }
+            }
+            let u0 = value(at: 0), u1 = value(at: length)
+            let lo = min(u0, u1), hi = max(u0, u1)
+            let ratio = max(1, Int((major / minor).rounded()))
+            var k = Int((lo / minor).rounded(.down))
+            let kEnd = Int((hi / minor).rounded(.up))
+            var ticks = Path()
+            let decimals = RulerTicks.decimals(for: major)
+            while k <= kEnd {
+                let u = Double(k) * minor
+                let p = CGFloat(pos(u))
+                let isMajor = k % ratio == 0
+                let tick: CGFloat = isMajor ? thickness * 0.55 : thickness * 0.25
+                if horizontal {
+                    ticks.move(to: CGPoint(x: p, y: thickness)); ticks.addLine(to: CGPoint(x: p, y: thickness - tick))
+                } else {
+                    ticks.move(to: CGPoint(x: thickness, y: p)); ticks.addLine(to: CGPoint(x: thickness - tick, y: p))
+                }
+                if isMajor {
+                    let text = Text(String(format: "%.\(decimals)f", abs(u) < 1e-9 ? 0 : u))
+                        .font(.system(size: 9).monospacedDigit())
+                        .foregroundColor(Self.ink)
+                    if horizontal {
+                        ctx.draw(text, at: CGPoint(x: p + 3, y: 2), anchor: .topLeading)
+                    } else {
+                        var t = ctx
+                        t.translateBy(x: 2, y: p - 3)
+                        t.rotate(by: .degrees(-90))
+                        t.draw(text, at: .zero, anchor: .topLeading)
+                    }
+                }
+                k += 1
+            }
+            ctx.stroke(ticks, with: .color(Self.ink), lineWidth: 1)
+
+            // Cursor marker.
+            if let h = hover {
+                let p = horizontal
+                    ? CGFloat(h.x) * scale + offset.width - shift
+                    : CGFloat(h.y) * scale + offset.height - shift
+                var m = Path()
+                if horizontal { m.move(to: CGPoint(x: p, y: 0)); m.addLine(to: CGPoint(x: p, y: thickness)) }
+                else { m.move(to: CGPoint(x: 0, y: p)); m.addLine(to: CGPoint(x: thickness, y: p)) }
+                ctx.stroke(m, with: .color(Self.accent), lineWidth: 1)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { model.units = model.units.next }
+        .help("Click to switch units: mm → in → pt → mil")
+    }
+}
+
+enum RulerTicks {
+    /// A 1-2-5 step in units so that major ticks are at least `minSpacing` points apart.
+    static func step(pixelsPerUnit: Double, minSpacing: Double) -> Double {
+        guard pixelsPerUnit > 0 else { return 1 }
+        let raw = minSpacing / pixelsPerUnit
+        let exponent = floor(log10(raw))
+        let base = pow(10, exponent)
+        for m in [1.0, 2.0, 5.0, 10.0] where m * base >= raw { return m * base }
+        return 10 * base
+    }
+
+    static func minor(for major: Double) -> Double {
+        let mantissa = major / pow(10, floor(log10(major)))
+        return major / (abs(mantissa - 2) < 0.01 ? 4 : 5)
+    }
+
+    static func decimals(for step: Double) -> Int {
+        max(0, Int(-floor(log10(step) + 1e-9)))
     }
 }
 

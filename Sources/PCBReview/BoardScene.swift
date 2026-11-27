@@ -120,7 +120,7 @@ struct BoardScene {
                          "F.Fab", "B.Fab", "F.CrtYd", "B.CrtYd", "Dwgs.User", "Cmts.User", "User.1"]
         let defaultOn: Set<String> = ["F.SilkS", "B.SilkS", "Edge.Cuts"]
         for name in technical + paths.keys.sorted() where !copperNames.contains(name) && !infos.contains(where: { $0.name == name }) {
-            guard paths[name] != nil else { continue }
+            guard paths[name] != nil || name == "Dwgs.User" else { continue } // dimensions are drawn here
             let layer = board.layers.first { $0.name == name }
             let display = layer?.userName.map { "\($0)" } ?? name
             infos.append(LayerInfo(name: name, displayName: display, color: LayerColors.technical(name),
