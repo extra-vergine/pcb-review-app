@@ -145,6 +145,9 @@ final class DesignCheckTests: XCTestCase {
             let r = DesignChecker(input: input, profile: try FabProfiles.load(id: id)).run()
             XCTAssertEqual(r.findings.filter { $0.kind == .ruleNotChecked }.count, 0, "every custom rule in the sample is understood")
             XCTAssertEqual(Set(r.findings.map(\.id)).count, r.findings.count)
+            let silk: Set<CheckKind> = [.silkLineWidth, .textHeight, .textThickness, .silkToPad]
+            XCTAssertFalse(r.findings.contains { silk.contains($0.kind) && $0.suite != .kicad && $0.severity == .error },
+                           "fab silkscreen limits are warnings")
             for f in r.findings {
                 XCTAssertFalse(f.message.isEmpty)
                 XCTAssertLessThanOrEqual(f.area.minX, f.area.maxX)

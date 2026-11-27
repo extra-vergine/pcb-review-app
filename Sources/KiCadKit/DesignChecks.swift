@@ -183,6 +183,12 @@ private struct Run {
         checkSilkscreen()
         checkTexts()
         checkBoardThickness()
+
+        // A fab's silkscreen limits are about legibility: the board still works, so these stay warnings.
+        let silkKinds: Set<CheckKind> = [.silkLineWidth, .textHeight, .textThickness, .silkToPad]
+        for i in findings.indices where findings[i].suite != .kicad && silkKinds.contains(findings[i].kind) && findings[i].severity == .error {
+            findings[i].severity = .warning
+        }
     }
 
     mutating func compileRules() {
