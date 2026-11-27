@@ -46,6 +46,41 @@ struct Guide: Identifiable, Equatable {
     var position: Double
 }
 
+/// Which panel the right-hand side shows.
+enum SidePanel: String, CaseIterable {
+    case findings = "Findings", inspector = "Inspector"
+}
+
+enum FindingFilter: String, CaseIterable {
+    case all = "All", errors = "Errors", warnings = "Warnings"
+
+    func includes(_ f: Finding) -> Bool {
+        switch self {
+        case .all: return true
+        case .errors: return f.severity == .error
+        case .warnings: return f.severity == .warning
+        }
+    }
+}
+
+/// One section of the findings list.
+struct FindingGroup: Identifiable {
+    struct Kind: Identifiable {
+        var kind: CheckKind
+        var findings: [Finding]
+        var id: CheckKind { kind }
+    }
+    var suite: CheckSuite
+    var kinds: [Kind]
+    var id: CheckSuite { suite }
+}
+
+/// Asks the canvas to show an area; the serial makes repeated requests for the same area distinct.
+struct FocusRequest: Equatable {
+    var rect: Rect
+    var serial: Int
+}
+
 /// App state: the open board, which layers are active, the view options and the selection.
 @MainActor
 final class BoardModel: ObservableObject {
@@ -94,6 +129,26 @@ final class BoardModel: ObservableObject {
     @Published var fitRequest = 0
 
     static let drawingsLayer = "Dwgs.User"
+
+    // MARK: Design checks state
+
+    /// The fab profiles bundled with the app.
+    let fabProfiles = FabProfiles.bundled()
+    /// The fab to check against, or `kicadOnly`. Remembered between launches.
+    @Published var fabProfileID: String = UserDefaults.standard.string(forKey: "fabProfile") ?? "jlcpcb" {
+        didSet {
+            UserDefaults.standard.set(fabProfileID, forKey: "fabProfile")
+            if oldValue != fabProfileID { runChecks() }
+        }
+    }
+    static let kicadOnly = "kicad"
+    @Published private(set) var report: CheckReport?
+    @Published private(set) var isChecking = false
+    private var checkGeneration = 0
+    @Published var selectedFindingID: Int?
+    @Published var findingFilter: FindingFilter = .all
+    @Published var sidePanel: SidePanel = .findings
+    @Published var focusRequest: FocusRequest?
 
     /// Paper, orientation and margins from File › Page Setup.
     let printInfo: NSPrintInfo = {
@@ -179,6 +234,9 @@ final class BoardModel: ObservableObject {
             self.visibleLayers = Set(scene.layers.filter(\.visibleByDefault).map(\.name))
             if anyDimensionShown { activateDrawings() }
             self.fitRequest += 1
+            self.report = nil
+            self.selectedFindingID = nil
+            runChecks()
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {
             errorMessage = "\(url.lastPathComponent): \(error)"
@@ -186,6 +244,110 @@ final class BoardModel: ObservableObject {
     }
 
     func isActive(_ layer: String) -> Bool { visibleLayers.contains(layer) }
+
+    // MARK: Design checks
+
+    var fabProfile: FabProfile? { fabProfiles.first { $0.id == fabProfileID } }
+
+    /// Runs the deterministic checks in the background and publishes the report.
+    func runChecks() {
+        guard let input else { return }
+        let profile = fabProfile
+        checkGeneration += 1
+        let generation = checkGeneration
+        isChecking = true
+        Task.detached(priority: .userInitiated) {
+            let report = DesignChecker(input: input, profile: profile).run()
+            await MainActor.run {
+                guard generation == self.checkGeneration else { return }
+                self.report = report
+                self.isChecking = false
+                if let id = self.selectedFindingID, id >= report.findings.count { self.selectedFindingID = nil }
+            }
+        }
+    }
+
+    /// The findings shown in the list, grouped the way the list shows them:
+    /// KiCad rules first, then the fab; within each, by kind of check.
+    var findingGroups: [FindingGroup] {
+        guard let report else { return [] }
+        let shown = report.findings.filter { findingFilter.includes($0) }
+        var suites: [CheckSuite] = [.kicad]
+        if let p = report.profile { suites.append(.fab(id: p.id, name: p.name)) }
+        return suites.map { suite in
+            let mine = shown.filter { $0.suite == suite }
+            let kinds = CheckKind.allCases.compactMap { kind -> FindingGroup.Kind? in
+                let list = mine.filter { $0.kind == kind }
+                return list.isEmpty ? nil : FindingGroup.Kind(kind: kind, findings: list)
+            }
+            return FindingGroup(suite: suite, kinds: kinds)
+        }
+    }
+
+    /// The shown findings in list order, for next and previous.
+    var orderedFindings: [Finding] { findingGroups.flatMap { $0.kinds.flatMap(\.findings) } }
+
+    var selectedFinding: Finding? {
+        guard let id = selectedFindingID, let r = report, id < r.findings.count else { return nil }
+        return r.findings[id]
+    }
+
+    /// Selects a finding, makes its layer and items visible and zooms to it.
+    func focus(_ f: Finding) {
+        selectedFindingID = f.id
+        if let layer = f.layer {
+            visibleLayers.insert(layer)
+            if let t = tab.layerName, t != layer { tab = .all }
+        }
+        for item in f.items {
+            switch item {
+            case .pad, .footprint: showComponents = true
+            case .zone: showZoneFills = true
+            case .via: showVias = true
+            case .track: break
+            }
+        }
+        selection = f.items.first
+        // Show the items with some room around them, at least 3 mm across.
+        var r = f.area
+        let w = max(r.width, 3), h = max(r.height, 3)
+        let c = Point((r.minX + r.maxX) / 2, (r.minY + r.maxY) / 2)
+        r = Rect(minX: c.x - w * 0.75, minY: c.y - h * 0.75, maxX: c.x + w * 0.75, maxY: c.y + h * 0.75)
+        focusRequest = FocusRequest(rect: r, serial: (focusRequest?.serial ?? 0) + 1)
+    }
+
+    /// Moves to the next (or previous) finding in the list.
+    func stepFinding(by delta: Int) {
+        let list = orderedFindings
+        guard !list.isEmpty else { return }
+        let current = list.firstIndex { $0.id == selectedFindingID }
+        let next = current.map { ($0 + delta + list.count) % list.count } ?? (delta > 0 ? 0 : list.count - 1)
+        sidePanel = .findings
+        focus(list[next])
+    }
+
+    /// The findings as plain text, for pasting into a message or a note.
+    var findingsText: String {
+        guard let report else { return "" }
+        var lines = ["Design checks for \(url?.lastPathComponent ?? "board"): \(report.count(.error)) errors, \(report.count(.warning)) warnings, \(report.count(.info)) notes"]
+        lines += report.applied.map { "Using \($0)" }
+        for group in findingGroups {
+            lines.append("")
+            lines.append("== \(group.suite.title) ==")
+            for k in group.kinds {
+                lines.append("\(k.kind.title) (\(k.findings.count))")
+                for f in k.findings {
+                    lines.append(String(format: "  [%@] (%.3f, %.3f) ", f.severity.title, f.location.x, f.location.y) + f.message + " — " + f.rule.title)
+                }
+            }
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    func copyFindings() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(findingsText, forType: .string)
+    }
 
     // MARK: Origin
 

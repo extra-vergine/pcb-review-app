@@ -44,6 +44,17 @@ struct PCBReviewApp: App {
                     .disabled(model.input == nil)
             }
             ViewCommands(model: model, viewport: viewport)
+            CommandMenu("Checks") {
+                Button("Next Finding") { model.stepFinding(by: 1) }
+                    .keyboardShortcut("]")
+                Button("Previous Finding") { model.stepFinding(by: -1) }
+                    .keyboardShortcut("[")
+                Divider()
+                Button("Run Checks Again") { model.runChecks() }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                Button("Copy Findings as Text") { model.copyFindings() }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+            }
         }
     }
 }
@@ -76,7 +87,7 @@ struct ViewCommands: Commands {
                 .disabled(model.guides.isEmpty)
             Button("Next Origin Corner") { model.cycleOrigin() }
             Divider()
-            Button("Clear Selection") { model.selection = nil }
+            Button("Clear Selection") { model.selection = nil; model.selectedFindingID = nil }
                 .keyboardShortcut(.escape, modifiers: [])
         }
         CommandMenu("Layers") {
@@ -126,8 +137,8 @@ struct ContentView: View {
                         BoardCanvasView(board: input.board)
                     }
                     .frame(minWidth: 400)
-                    InspectorPanel()
-                        .frame(minWidth: 220, idealWidth: 260, maxWidth: 360)
+                    SidePanelView()
+                        .frame(minWidth: 260, idealWidth: 320, maxWidth: 460)
                 }
             } else {
                 EmptyStateView()
