@@ -18,6 +18,7 @@ struct LayerPanel: View {
                 Toggle("Zone fills", isOn: $model.showZoneFills)
                 Toggle("Vias", isOn: $model.showVias)
                 Toggle("Components", isOn: $model.showComponents)
+                    .help("Pads, footprint graphics and a body box with the reference for each component")
             }
             Section("Dimensions (User.Drawings)") {
                 Toggle("Board, horizontal", isOn: $model.showBoardWidth)
