@@ -19,14 +19,17 @@ struct BoardCanvasView: View {
                 overlayCanvas
                     .allowsHitTesting(false)
                 EventCaptureView(
-                    onClick: { model.select(at: viewport.toBoard($0)) },
+                    onClick: handleClick,
                     onDrag: { viewport.pan(by: $0) },
                     onScroll: handleScroll,
                     onMagnify: { m, loc in viewport.zoom(by: 1 + m, at: loc) },
-                    onHover: { viewport.hover = $0.map(viewport.toBoard) }
+                    onHover: { viewport.hover = $0.map(viewport.toBoard) },
+                    onPress: { model.grabGuide(at: $0, transform: viewport.transform) },
+                    onPressDrag: { model.moveGuide(to: $0, transform: viewport.transform) },
+                    onPressEnd: { model.endGuideDrag(at: $0, rulerSize: Self.rulerSize) }
                 )
                 if model.showRulers {
-                    RulersView(origin: board.userOrigin)
+                    RulersView(origin: model.userOrigin)
                 }
                 statusBar
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
@@ -44,11 +47,26 @@ struct BoardCanvasView: View {
             }
             .onChange(of: model.fitRequest) { _ in fit() }
         }
+        .coordinateSpace(name: Self.space)
         .clipped()
     }
 
+    static let space = "boardCanvas"
+
     private func fit() {
-        if let b = model.scene?.bounds { viewport.fit(b) }
+        if let b = model.fitRect { viewport.fit(b) }
+    }
+
+    /// A click on the origin marker moves the origin to the next corner; anywhere else selects.
+    private func handleClick(_ p: CGPoint) {
+        if model.showOrigin {
+            let o = viewport.toScreen(model.userOrigin)
+            if hypot(o.x - p.x, o.y - p.y) <= 12 {
+                model.cycleOrigin()
+                return
+            }
+        }
+        model.select(at: viewport.toBoard(p))
     }
 
     private func handleScroll(_ delta: CGSize, precise: Bool, zoomModifier: Bool, location: CGPoint) {
@@ -102,10 +120,14 @@ struct BoardCanvasView: View {
     private var overlayCanvas: some View {
         let dims = model.dimensions
         let units = model.units
-        let origin: Point? = model.showOrigin ? board.userOrigin : nil
+        let origin: Point? = model.showOrigin ? model.userOrigin : nil
         let dimColor = model.color(of: BoardModel.drawingsLayer)
         let t = viewport.transform
-        return Canvas { ctx, _ in
+        let guides = model.guides + (model.pendingGuide.map { [$0] } ?? [])
+        let guideOrigin = model.userOrigin
+        let inset = model.showRulers ? Self.rulerSize : 0
+        return Canvas { ctx, size in
+            GuideRenderer.draw(guides, in: ctx, size: size, transform: t, origin: guideOrigin, units: units, inset: inset)
             BoardRenderer.drawOverlay(in: ctx, transform: t, origin: origin, dimensions: dims,
                                       dimensionColor: dimColor, units: units)
         }
@@ -115,11 +137,14 @@ struct BoardCanvasView: View {
 
     private var statusBar: some View {
         let units = model.units
-        let origin = board.userOrigin
+        let origin = model.userOrigin
         return HStack(spacing: 12) {
             if let p = viewport.hover {
                 // Relative to the origin, with Y pointing up.
                 Text("X \(units.format(p.x - origin.x, withUnit: false))  Y \(units.format(origin.y - p.y, withUnit: false)) \(units.rawValue)")
+            }
+            if model.showOrigin {
+                Text("Origin: \(model.originDescription)")
             }
             Text(String(format: "%.0f px/mm", viewport.scale))
             if viewport.flipX || viewport.flipY {
@@ -159,11 +184,11 @@ enum DimensionRenderer {
             ext.move(to: CGPoint(x: f.x + ux * 4, y: f.y + uy * 4))
             ext.addLine(to: CGPoint(x: s.x + ux * 6, y: s.y + uy * 6))
         }
-        ctx.stroke(ext, with: .color(color.opacity(0.8)), lineWidth: 0.8)
+        ctx.stroke(ext, with: .color(color.opacity(0.85)), lineWidth: 1)
 
         var line = Path()
         line.move(to: sa); line.addLine(to: sb)
-        ctx.stroke(line, with: .color(color), lineWidth: 1)
+        ctx.stroke(line, with: .color(color), lineWidth: 1.5)
 
         // Arrow heads pointing outwards to the extension lines.
         let dx = sb.x - sa.x, dy = sb.y - sa.y
@@ -171,7 +196,7 @@ enum DimensionRenderer {
         let ux = dx / len, uy = dy / len
         func arrow(at p: CGPoint, dir: CGFloat) -> Path {
             var path = Path()
-            let size: CGFloat = 7, half: CGFloat = 2.6
+            let size: CGFloat = 13, half: CGFloat = 4.5
             let back = CGPoint(x: p.x + ux * size * dir, y: p.y + uy * size * dir)
             path.move(to: p)
             path.addLine(to: CGPoint(x: back.x - uy * half, y: back.y + ux * half))
@@ -179,21 +204,21 @@ enum DimensionRenderer {
             path.closeSubpath()
             return path
         }
-        if len > 20 {
+        if len > 34 {
             ctx.fill(arrow(at: sa, dir: 1), with: .color(color))
             ctx.fill(arrow(at: sb, dir: -1), with: .color(color))
         }
 
         // Label, outside the board: above horizontal lines, left of vertical ones on the left side.
         let label = Text(units.format(d.length))
-            .font(.system(size: 11, weight: .medium).monospacedDigit())
+            .font(.system(size: 16, weight: .semibold).monospacedDigit())
             .foregroundColor(color)
         let mid = CGPoint(x: (sa.x + sb.x) / 2, y: (sa.y + sb.y) / 2)
         if horizontal {
-            ctx.draw(label, at: CGPoint(x: mid.x, y: mid.y - 3), anchor: .bottom)
+            ctx.draw(label, at: CGPoint(x: mid.x, y: mid.y - 4), anchor: .bottom)
         } else {
             var t = ctx
-            t.translateBy(x: mid.x - 3, y: mid.y)
+            t.translateBy(x: mid.x - 4, y: mid.y)
             t.rotate(by: .degrees(-90))
             t.draw(label, at: .zero, anchor: .bottom)
         }
@@ -309,7 +334,52 @@ struct RulersView: View {
         }
         .contentShape(Rectangle())
         .onTapGesture { model.units = model.units.next }
-        .help("Click to switch units: mm → in → pt → mil")
+        .gesture(
+            DragGesture(minimumDistance: 3, coordinateSpace: .named(BoardCanvasView.space))
+                .onChanged { v in
+                    let p = viewport.toBoard(v.location)
+                    model.pendingGuide = horizontal
+                        ? Guide(axis: .horizontal, position: p.y)
+                        : Guide(axis: .vertical, position: p.x)
+                }
+                .onEnded { v in
+                    // Place the guide only if it was dragged out onto the board view.
+                    let onBoard = horizontal ? v.location.y > thickness : v.location.x > thickness
+                    if onBoard, let g = model.pendingGuide { model.guides.append(g) }
+                    model.pendingGuide = nil
+                }
+        )
+        .help("Click to switch units (mm → in → pt → mil). Drag onto the board for a guide.")
+    }
+}
+
+/// Draws guides as blue dashed lines across the canvas, with their position next to the ruler.
+enum GuideRenderer {
+    static let color = Color(red: 0.25, green: 0.56, blue: 1.0)
+
+    static func draw(_ guides: [Guide], in ctx: GraphicsContext, size: CGSize, transform t: ViewTransform,
+                     origin: Point, units: LengthUnit, inset: CGFloat) {
+        let style = StrokeStyle(lineWidth: 1, dash: [6, 4])
+        for g in guides {
+            var path = Path()
+            let label: String
+            let at: CGPoint
+            switch g.axis {
+            case .horizontal:
+                let y = t.screen(Point(0, g.position)).y
+                path.move(to: CGPoint(x: 0, y: y)); path.addLine(to: CGPoint(x: size.width, y: y))
+                label = units.format(origin.y - g.position)
+                at = CGPoint(x: inset + 4, y: y - 2)
+            case .vertical:
+                let x = t.screen(Point(g.position, 0)).x
+                path.move(to: CGPoint(x: x, y: 0)); path.addLine(to: CGPoint(x: x, y: size.height))
+                label = units.format(g.position - origin.x)
+                at = CGPoint(x: x + 4, y: inset + 2)
+            }
+            ctx.stroke(path, with: .color(color), style: style)
+            let text = Text(label).font(.system(size: 10, weight: .medium).monospacedDigit()).foregroundColor(color)
+            ctx.draw(text, at: at, anchor: g.axis == .horizontal ? .bottomLeading : .topLeading)
+        }
     }
 }
 
@@ -342,6 +412,10 @@ struct EventCaptureView: NSViewRepresentable {
     var onScroll: (CGSize, _ precise: Bool, _ zoomModifier: Bool, CGPoint) -> Void
     var onMagnify: (CGFloat, CGPoint) -> Void
     var onHover: (CGPoint?) -> Void
+    /// Called on mouse down; returning true routes the drag to `onPressDrag` / `onPressEnd` (guides).
+    var onPress: (CGPoint) -> Bool = { _ in false }
+    var onPressDrag: (CGPoint) -> Void = { _ in }
+    var onPressEnd: (CGPoint) -> Void = { _ in }
 
     func makeNSView(context: Context) -> CaptureView {
         let v = CaptureView()
@@ -357,6 +431,9 @@ struct EventCaptureView: NSViewRepresentable {
         v.onScroll = onScroll
         v.onMagnify = onMagnify
         v.onHover = onHover
+        v.onPress = onPress
+        v.onPressDrag = onPressDrag
+        v.onPressEnd = onPressEnd
     }
 
     final class CaptureView: NSView {
@@ -365,6 +442,10 @@ struct EventCaptureView: NSViewRepresentable {
         var onScroll: ((CGSize, Bool, Bool, CGPoint) -> Void)?
         var onMagnify: ((CGFloat, CGPoint) -> Void)?
         var onHover: ((CGPoint?) -> Void)?
+        var onPress: ((CGPoint) -> Bool)?
+        var onPressDrag: ((CGPoint) -> Void)?
+        var onPressEnd: ((CGPoint) -> Void)?
+        private var pressing = false
 
         private var downLocation: CGPoint?
         private var lastDrag: CGPoint?
@@ -388,10 +469,17 @@ struct EventCaptureView: NSViewRepresentable {
         override func mouseDown(with e: NSEvent) {
             let p = location(e)
             downLocation = p; lastDrag = p; dragged = false
+            pressing = onPress?(p) ?? false
+            if pressing { NSCursor.resizeLeftRight.set() }
         }
 
         override func mouseDragged(with e: NSEvent) {
             let p = location(e)
+            if pressing {
+                onPressDrag?(p)
+                onHover?(p)
+                return
+            }
             if let down = downLocation, hypot(p.x - down.x, p.y - down.y) > 3 { dragged = true }
             if dragged, let last = lastDrag {
                 onDrag?(CGSize(width: p.x - last.x, height: p.y - last.y))
@@ -402,6 +490,12 @@ struct EventCaptureView: NSViewRepresentable {
         }
 
         override func mouseUp(with e: NSEvent) {
+            if pressing {
+                onPressEnd?(location(e))
+                pressing = false
+                NSCursor.arrow.set()
+                return
+            }
             if !dragged { onClick?(location(e)) }
             downLocation = nil; lastDrag = nil; dragged = false
             NSCursor.arrow.set()

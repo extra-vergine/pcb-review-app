@@ -32,6 +32,6 @@ Navigation: pinch, ⌘-scroll or ⌘+ / ⌘− to zoom (a mouse wheel zooms dire
 
 - Tabs above the board: All active layers, then each copper layer (⌘1, ⌘2, …).
 - Layers: green check marks switch layers on and off; click a colour swatch to change its colour (right-click to reset).
-- View: rulers (⌘R, click a ruler to cycle mm → in → pt → mil), origin marker, Flip X (⇧⌘X) and Flip Y (⇧⌘Y).
+- View: rulers (⌘R, click a ruler to cycle mm → in → pt → mil, drag from a ruler to place a guide, drag a guide back onto its ruler to remove it, View › Clear All Guides), origin marker (click it to move the origin to the next board corner), Flip X (⇧⌘X) and Flip Y (⇧⌘Y).
 - Dimensions on User.Drawings: overall board size and mounting-hole spacing.
 - File: Page Setup (⇧⌘P), Print (⌘P), and Export to PDF (true scale), PNG, SVG, HP-GL, GLB and USDZ.

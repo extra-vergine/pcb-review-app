@@ -71,6 +71,10 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("r")
             Button("Switch Units (\(model.units.next.rawValue))") { model.units = model.units.next }
             Divider()
+            Button("Clear All Guides") { model.clearGuides() }
+                .disabled(model.guides.isEmpty)
+            Button("Next Origin Corner") { model.cycleOrigin() }
+            Divider()
             Button("Clear Selection") { model.selection = nil }
                 .keyboardShortcut(.escape, modifiers: [])
         }
