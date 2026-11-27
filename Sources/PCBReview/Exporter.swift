@@ -158,6 +158,7 @@ enum Exporter {
                               colors: model.renderColors.mapValues(\.rgba))
         o.showZoneFills = model.showZoneFills
         o.showVias = model.showVias
+        o.showComponents = model.showComponents
         o.flipX = viewport.flipX
         o.flipY = viewport.flipY
         return o
@@ -175,6 +176,7 @@ enum Exporter {
         func side(_ layers: Set<String>) throws -> Texture {
             var options = RenderOptions(layers: layers, colors: model.renderColors)
             options.showZoneFills = model.showZoneFills
+            options.showComponents = model.showComponents
             let size = CGSize(width: CGFloat(bounds.width) * pngPixelsPerMM, height: CGFloat(bounds.height) * pngPixelsPerMM)
             let content = BoardPictureView(scene: scene, fitRect: bounds, options: options, margin: 1)
                 .frame(width: size.width, height: size.height)

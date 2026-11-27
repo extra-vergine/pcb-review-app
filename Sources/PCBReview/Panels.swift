@@ -17,6 +17,7 @@ struct LayerPanel: View {
                 Toggle("Rulers (⌘R)", isOn: $model.showRulers)
                 Toggle("Zone fills", isOn: $model.showZoneFills)
                 Toggle("Vias", isOn: $model.showVias)
+                Toggle("Components", isOn: $model.showComponents)
             }
             Section("Dimensions (User.Drawings)") {
                 Toggle("Board, horizontal", isOn: $model.showBoardWidth)
@@ -82,18 +83,31 @@ struct LayerTabBar: View {
     @EnvironmentObject var model: BoardModel
 
     var body: some View {
+        HStack(spacing: 0) {
+            tabs
+            Divider().frame(height: 22)
+            FlipButtons()
+                .padding(.horizontal, 8)
+        }
+        .background(.bar)
+    }
+
+    private var tabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 2) {
                 ForEach(Array(model.tabs.enumerated()), id: \.offset) { index, tab in
                     let selected = model.tab == tab
+                    let inactive = tab.layerName.map { !model.isActive($0) } ?? false
                     Button {
                         model.tab = tab
                     } label: {
                         HStack(spacing: 6) {
-                            if case .copper(let name) = tab {
+                            if let name = tab.layerName {
                                 RoundedRectangle(cornerRadius: 2).fill(model.color(of: name)).frame(width: 10, height: 10)
                             }
                             Text(model.title(of: tab))
+                                .strikethrough(inactive)
+                                .foregroundStyle(inactive ? Color.secondary : Color.primary)
                             if index < 9 {
                                 Text("⌘\(index + 1)").foregroundStyle(.secondary).font(.caption)
                             }
@@ -105,16 +119,19 @@ struct LayerTabBar: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
+                    .help(index < 9 && tab.layerName != nil
+                          ? "⌘\(index + 1) shows this tab, ⌥⌘\(index + 1) switches its layer \(inactive ? "on" : "off")"
+                          : model.title(of: tab))
+                    .contextMenu {
+                        if let name = tab.layerName {
+                            Button(inactive ? "Activate Layer" : "Deactivate Layer") { model.toggle(name) }
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
         }
-        .overlay(alignment: .trailing) {
-            FlipButtons()
-                .padding(.trailing, 8)
-        }
-        .background(.bar)
     }
 }
 

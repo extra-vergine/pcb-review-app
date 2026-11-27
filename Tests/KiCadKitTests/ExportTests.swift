@@ -86,3 +86,20 @@ final class ExportTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(numbers.min() ?? 0, 0)
     }
 }
+
+final class ComponentFilterTests: XCTestCase {
+    var board: Board { BoardParserTests.input.board }
+
+    func testHidingComponents() {
+        let all = Set(board.layers.map(\.name))
+        let hit = board.hitTest(Point(124.175, 109), visibleLayers: all, includeFootprints: false)
+        if case .pad? = hit { XCTFail("pads must not be hit when components are hidden") }
+        if case .footprint? = hit { XCTFail("footprints must not be hit when components are hidden") }
+
+        XCTAssertFalse(board.geometry(of: "F.Cu").pads.isEmpty)
+        XCTAssertTrue(board.geometry(of: "F.Cu", includeFootprints: false).pads.isEmpty)
+        XCTAssertLessThan(board.geometry(of: "F.SilkS", includeFootprints: false).lines.count,
+                          board.geometry(of: "F.SilkS").lines.count)
+        XCTAssertEqual(board.holes(includePads: false).count, board.vias.count)
+    }
+}

@@ -7,6 +7,8 @@ public struct ExportOptions: Sendable {
     public var colors: [String: RGBA]
     public var showZoneFills: Bool = true
     public var showVias: Bool = true
+    /// Footprints: pads, holes and footprint graphics.
+    public var showComponents: Bool = true
     public var flipX: Bool = false
     public var flipY: Bool = false
     public var background: RGBA? = RGBA(0.07, 0.08, 0.09)
@@ -68,7 +70,7 @@ public enum SVGExporter {
         }
         var anyCopper = false
         for layer in o.layers {
-            let g = board.geometry(of: layer)
+            let g = board.geometry(of: layer, includeFootprints: o.showComponents)
             if g.isEmpty { continue }
             if layer.hasSuffix(".Cu") { anyCopper = true }
             let c = o.color(layer)
@@ -98,7 +100,7 @@ public enum SVGExporter {
             }
             let holeColor = (o.background ?? RGBA(1, 1, 1)).hex
             out += "<g id=\"holes\" fill=\"\(holeColor)\">\n"
-            for h in board.holes { out += "<circle cx=\"\(fmt(h.center.x))\" cy=\"\(fmt(h.center.y))\" r=\"\(fmt(h.diameter / 2))\"/>\n" }
+            for h in board.holes(includePads: o.showComponents) { out += "<circle cx=\"\(fmt(h.center.x))\" cy=\"\(fmt(h.center.y))\" r=\"\(fmt(h.diameter / 2))\"/>\n" }
             out += "</g>\n"
         }
         out += "</g>\n</svg>\n"
@@ -141,7 +143,7 @@ public enum HPGLExporter {
         var anyCopper = false
         var pen = 0
         for layer in o.layers {
-            let g = board.geometry(of: layer)
+            let g = board.geometry(of: layer, includeFootprints: o.showComponents)
             if g.isEmpty { continue }
             if layer.hasSuffix(".Cu") { anyCopper = true }
             pen = pen % 8 + 1
@@ -168,7 +170,7 @@ public enum HPGLExporter {
             pen = pen % 8 + 1
             out += "CO \"holes\";\nSP\(pen);\nPW0.1,\(pen);\n"
             let vias: [(center: Point, diameter: Double)] = o.showVias ? board.vias.map { (center: $0.position, diameter: $0.size) } : []
-            for h in vias + board.holes {
+            for h in vias + board.holes(includePads: o.showComponents) {
                 let (x, y) = pu(h.center)
                 out += String(format: "PU%d,%d;CI%d;\n", x, y, Int((h.diameter / 2 * unitsPerMM).rounded()))
             }

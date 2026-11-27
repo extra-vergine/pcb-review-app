@@ -32,14 +32,17 @@ public struct LayerGeometry: Sendable {
 
 public extension Board {
     /// The geometry on `layer`: zone fills, tracks, pads and graphics (board and footprint).
-    func geometry(of layer: String) -> LayerGeometry {
+    func geometry(of layer: String, includeFootprints: Bool = true) -> LayerGeometry {
         var g = LayerGeometry()
         for z in zones where !z.isRuleArea {
             for f in z.filledPolygons where f.layer == layer { g.zoneFills.append(f.points) }
         }
         for t in tracks where t.layer == layer { g.tracks.append(.init(points: t.centerline, width: t.width)) }
-        for p in pads where p.copperLayers.contains(layer) { g.pads.append(p.outline) }
-        for gr in graphics + footprints.flatMap(\.graphics) where gr.layer == layer {
+        if includeFootprints {
+            for p in pads where p.copperLayers.contains(layer) { g.pads.append(p.outline) }
+        }
+        let footprintGraphics = footprints.flatMap(\.graphics).filter { includeFootprints || $0.layer == "Edge.Cuts" }
+        for gr in graphics + footprintGraphics where gr.layer == layer {
             if gr.filled, gr.kind == .polygon || gr.kind == .rect || gr.kind == .circle {
                 g.filledShapes.append(gr.polyline)
             }
@@ -49,8 +52,11 @@ public extension Board {
     }
 
     /// Hole centres and diameters for pads and vias (slots use their smaller size).
-    var holes: [(center: Point, diameter: Double)] {
-        let padHoles: [(center: Point, diameter: Double)] = pads.compactMap { p in
+    var holes: [(center: Point, diameter: Double)] { holes(includePads: true) }
+
+    /// Hole centres and diameters; pad holes only when `includePads`.
+    func holes(includePads: Bool) -> [(center: Point, diameter: Double)] {
+        let padHoles: [(center: Point, diameter: Double)] = !includePads ? [] : pads.compactMap { p in
             guard let d = p.drill else { return nil }
             return (center: p.position, diameter: d.minimumSize)
         }

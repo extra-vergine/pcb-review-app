@@ -76,9 +76,21 @@ struct ViewCommands: Commands {
         }
         CommandMenu("Layers") {
             ForEach(Array(model.tabs.prefix(9).enumerated()), id: \.offset) { index, tab in
-                Button(model.title(of: tab)) { model.tab = tab }
-                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))))
+                Button("Show \(model.title(of: tab))") { model.tab = tab }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: .command)
             }
+            Divider()
+            // ⌥⌘ + tab number switches that tab's layer off (and on again).
+            ForEach(Array(model.tabs.prefix(9).enumerated()), id: \.offset) { index, tab in
+                if let name = tab.layerName {
+                    Button("\(model.isActive(name) ? "Deactivate" : "Activate") \(model.title(of: tab))") {
+                        model.toggleTabLayer(number: index + 1)
+                    }
+                    .keyboardShortcut(KeyEquivalent(Character(String(index + 1))), modifiers: [.command, .option])
+                }
+            }
+            Divider()
+            Toggle("Show Components", isOn: $model.showComponents)
         }
     }
 }

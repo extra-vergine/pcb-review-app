@@ -25,6 +25,9 @@ struct LayerPaths {
     var pads = Path()
     var graphics: [StrokeGroup] = []
     var filledGraphics = Path()
+    /// Footprint graphics (silkscreen, fab, courtyard), hidden with the components.
+    var componentGraphics: [StrokeGroup] = []
+    var componentFilled = Path()
 }
 
 /// Precomputed drawing data for a board. Building paths once keeps panning and zooming smooth.
@@ -35,6 +38,8 @@ struct BoardScene {
     let paths: [String: LayerPaths]
     let viaPaths: Path
     let holes: Path
+    /// Pad holes only, drawn when components are shown.
+    let padHoles: Path
     let bounds: Rect
     /// The board shape (outline polygon, or the bounds if the outline does not close).
     let substrate: Path
@@ -74,7 +79,8 @@ struct BoardScene {
         }
 
         // Pads, on each copper layer they occupy.
-        var holes = Path()
+        var holes = Path()   // via holes
+        var padHoles = Path()
         for pad in board.pads {
             let outline = pad.outline
             for layer in pad.copperLayers {
@@ -83,9 +89,9 @@ struct BoardScene {
             if let d = pad.drill {
                 let c = pad.position + (d.offset?.rotated(byDegrees: pad.rotation) ?? Point(0, 0))
                 if let h = d.slotHeight {
-                    polygon(Shapes.oval(center: c, width: d.diameter, height: h, rotation: pad.rotation), into: &holes)
+                    polygon(Shapes.oval(center: c, width: d.diameter, height: h, rotation: pad.rotation), into: &padHoles)
                 } else {
-                    circle(c, d.diameter / 2, into: &holes)
+                    circle(c, d.diameter / 2, into: &padHoles)
                 }
             }
         }
@@ -98,17 +104,33 @@ struct BoardScene {
         }
 
         // Board and footprint graphics.
+        // Footprint outline pieces on Edge.Cuts count as board graphics, so the outline never disappears.
         var graphicGroups: [String: [Double: Path]] = [:]
-        let allGraphics = board.graphics + board.footprints.flatMap(\.graphics)
-        for g in allGraphics {
-            if g.filled, g.kind == .polygon || g.kind == .rect || g.kind == .circle {
-                polygon(g.polyline, into: &paths[g.layer, default: LayerPaths()].filledGraphics)
+        var componentGroups: [String: [Double: Path]] = [:]
+        let footprintGraphics = board.footprints.flatMap(\.graphics)
+        let boardGraphics = board.graphics + footprintGraphics.filter { $0.layer == "Edge.Cuts" }
+        for (list, isComponent) in [(boardGraphics, false), (footprintGraphics.filter { $0.layer != "Edge.Cuts" }, true)] {
+            for g in list {
+                if g.filled, g.kind == .polygon || g.kind == .rect || g.kind == .circle {
+                    if isComponent {
+                        polygon(g.polyline, into: &paths[g.layer, default: LayerPaths()].componentFilled)
+                    } else {
+                        polygon(g.polyline, into: &paths[g.layer, default: LayerPaths()].filledGraphics)
+                    }
+                }
+                let w = max(g.width, 0.01)
+                if isComponent {
+                    polyline(g.polyline, into: &componentGroups[g.layer, default: [:]][w, default: Path()])
+                } else {
+                    polyline(g.polyline, into: &graphicGroups[g.layer, default: [:]][w, default: Path()])
+                }
             }
-            let w = max(g.width, 0.01)
-            polyline(g.polyline, into: &graphicGroups[g.layer, default: [:]][w, default: Path()])
         }
         for (layer, groups) in graphicGroups {
             paths[layer, default: LayerPaths()].graphics = groups.map { StrokeGroup(width: $0.key, path: $0.value) }
+        }
+        for (layer, groups) in componentGroups {
+            paths[layer, default: LayerPaths()].componentGraphics = groups.map { StrokeGroup(width: $0.key, path: $0.value) }
         }
 
         // Layer list: only layers that have something to draw.
@@ -138,6 +160,7 @@ struct BoardScene {
         self.paths = paths
         self.viaPaths = viaPaths
         self.holes = holes
+        self.padHoles = padHoles
         self.bounds = board.outlineBounds
             ?? Rect.enclosing(board.pads.map(\.position) + board.tracks.flatMap { [$0.start, $0.end] })
             ?? Rect(minX: 0, minY: 0, maxX: 100, maxY: 100)

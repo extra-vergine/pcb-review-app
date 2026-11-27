@@ -3,10 +3,15 @@ import SwiftUI
 import UniformTypeIdentifiers
 import KiCadKit
 
-/// One tab above the canvas: every active layer, or a single copper layer.
+/// One tab above the canvas: every active layer, or a single layer.
 enum ViewTab: Hashable {
     case all
-    case copper(String)
+    case layer(String)
+
+    var layerName: String? {
+        if case .layer(let n) = self { return n }
+        return nil
+    }
 }
 
 /// App state: the open board, which layers are active, the view options and the selection.
@@ -24,6 +29,9 @@ final class BoardModel: ObservableObject {
 
     @Published var showZoneFills = true
     @Published var showVias = true
+    @Published var showComponents = true {
+        didSet { if !showComponents { revalidateSelection() } }
+    }
     @Published var showOrigin = true
     @Published var showRulers = true
     @Published var units: LengthUnit = .mm
@@ -61,15 +69,15 @@ final class BoardModel: ObservableObject {
 
     var layerList: [LayerInfo] { scene?.layers ?? [] }
 
-    /// "All active layers" first, then one tab per copper layer, top to bottom.
+    /// "All active layers" first, then one tab per layer: copper top to bottom, then the others.
     var tabs: [ViewTab] {
-        [.all] + layerList.filter(\.isCopper).map { .copper($0.name) }
+        [.all] + layerList.map { .layer($0.name) }
     }
 
     func title(of tab: ViewTab) -> String {
         switch tab {
         case .all: return "All active layers"
-        case .copper(let name): return layerList.first { $0.name == name }?.displayName ?? name
+        case .layer(let name): return layerList.first { $0.name == name }?.displayName ?? name
         }
     }
 
@@ -78,13 +86,21 @@ final class BoardModel: ObservableObject {
         if n >= 1, n <= t.count { tab = t[n - 1] }
     }
 
+    /// Switches the layer of tab `n` (1-based) off, or back on if it is off.
+    /// For the "All active layers" tab this does nothing.
+    func toggleTabLayer(number n: Int) {
+        let t = tabs
+        guard n >= 1, n <= t.count, let layer = t[n - 1].layerName else { return }
+        toggle(layer)
+    }
+
     /// The layers actually drawn: every active layer on the "All" tab; on a
-    /// copper tab that copper layer plus the outline and drawings if active.
+    /// layer tab that layer plus the outline and drawings if active.
     var drawnLayers: Set<String> {
         switch tab {
         case .all:
             return visibleLayers
-        case .copper(let name):
+        case .layer(let name):
             return Set([name]).union(visibleLayers.intersection(["Edge.Cuts", Self.drawingsLayer]))
         }
     }
@@ -154,7 +170,7 @@ final class BoardModel: ObservableObject {
     /// The options the canvas draws with right now.
     var renderOptions: RenderOptions {
         RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
-                      showVias: showVias, highlight: highlight)
+                      showVias: showVias, showComponents: showComponents, highlight: highlight)
     }
 
     private static let colorsKey = "layerColors"
@@ -189,7 +205,7 @@ final class BoardModel: ObservableObject {
 
     func select(at point: Point) {
         guard let board = input?.board else { return }
-        var item = board.hitTest(point, visibleLayers: drawnLayers)
+        var item = board.hitTest(point, visibleLayers: drawnLayers, includeFootprints: showComponents)
         if case .zone? = item, !showZoneFills { item = nil }
         if case .via? = item, !showVias { item = nil }
         selection = item
@@ -205,8 +221,8 @@ final class BoardModel: ObservableObject {
         let layers = drawnLayers
         let stillShown: Bool
         switch item {
-        case .pad(let f, let p): stillShown = board.footprints[f].pads[p].copperLayers.contains { layers.contains($0) }
-        case .footprint: stillShown = true
+        case .pad(let f, let p): stillShown = showComponents && board.footprints[f].pads[p].copperLayers.contains { layers.contains($0) }
+        case .footprint: stillShown = showComponents
         case .track(let i): stillShown = layers.contains(board.tracks[i].layer)
         case .via(let i): stillShown = board.vias[i].spannedLayers.contains { layers.contains($0) }
         case .zone(let i): stillShown = board.zones[i].layers.contains { layers.contains($0) }

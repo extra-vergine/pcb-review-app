@@ -7,6 +7,8 @@ struct RenderOptions {
     var colors: [String: Color]
     var showZoneFills = true
     var showVias = true
+    /// Footprints: pads, pad holes and footprint graphics.
+    var showComponents = true
     var highlight: NetHighlight?
     /// Fill the whole canvas with the background colour. Off for printing.
     var fillBackground = true
@@ -38,7 +40,14 @@ enum BoardRenderer {
                 c.stroke(g.path, with: .color(color.opacity(0.9 * dim)),
                          style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
             }
-            c.fill(lp.pads, with: .color(color.opacity(0.95 * dim)))
+            if o.showComponents {
+                c.fill(lp.pads, with: .color(color.opacity(0.95 * dim)))
+                c.fill(lp.componentFilled, with: .color(color.opacity(0.9)))
+                for g in lp.componentGraphics {
+                    c.stroke(g.path, with: .color(color.opacity(0.9)),
+                             style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
+                }
+            }
             c.fill(lp.filledGraphics, with: .color(color.opacity(0.9)))
             for g in lp.graphics {
                 c.stroke(g.path, with: .color(color.opacity(0.9)),
@@ -49,6 +58,7 @@ enum BoardRenderer {
         if anyCopperDrawn {
             if o.showVias { c.fill(scene.viaPaths, with: .color(RenderOptions.via.opacity(dim))) }
             c.fill(scene.holes, with: .color(RenderOptions.background))
+            if o.showComponents { c.fill(scene.padHoles, with: .color(RenderOptions.background)) }
         }
 
         if let h = o.highlight {
@@ -58,7 +68,7 @@ enum BoardRenderer {
                 for g in lp.tracks {
                     c.stroke(g.path, with: .color(glow), style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
                 }
-                c.fill(lp.pads, with: .color(glow))
+                if o.showComponents { c.fill(lp.pads, with: .color(glow)) }
             }
             if o.showVias && anyCopperDrawn { c.fill(h.viaPaths, with: .color(glow)) }
             c.stroke(h.selectedOutline, with: .color(.cyan),
