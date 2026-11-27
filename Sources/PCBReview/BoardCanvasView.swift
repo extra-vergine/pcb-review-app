@@ -83,8 +83,26 @@ struct BoardCanvasView: View {
         guard keyMonitor == nil else { return }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [viewport] event in
             if NSApp.keyWindow?.firstResponder is NSText { return event }
-            let mods = event.modifierFlags.intersection([.command, .option, .control])
-            guard mods.isEmpty else { return event }
+            let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+
+            // Zoom keys, matched by physical key so they work on any keyboard layout (Swiss included):
+            // ⌘ + numpad plus, ⌘⇧1 and any ⌘ "+" zoom in; ⌘ + numpad minus zooms out.
+            // Handled here, before the menus, so ⌘⇧1 never reaches the ⌘1 tab shortcut.
+            if mods.contains(.command), !mods.contains(.option), !mods.contains(.control) {
+                let keypadPlus: UInt16 = 69, keypadMinus: UInt16 = 78, digitOne: UInt16 = 18
+                if event.keyCode == keypadPlus
+                    || (event.keyCode == digitOne && mods.contains(.shift))
+                    || event.charactersIgnoringModifiers == "+" || event.characters == "+" {
+                    viewport.zoomCentered(by: 1.25)
+                    return nil
+                }
+                if event.keyCode == keypadMinus {
+                    viewport.zoomCentered(by: 0.8)
+                    return nil
+                }
+            }
+
+            guard mods.subtracting(.shift).isEmpty else { return event }
             let step: CGFloat = event.modifierFlags.contains(.shift) ? 200 : 40
             switch event.keyCode {
             case 123: viewport.pan(by: CGSize(width: -step, height: 0))   // left

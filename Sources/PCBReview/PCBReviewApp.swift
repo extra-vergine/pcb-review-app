@@ -55,6 +55,7 @@ struct ViewCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
+            // ⌘ + numpad plus and ⌘⇧1 also zoom in; the canvas key handler catches those.
             Button("Zoom In") { viewport.zoomCentered(by: 1.25) }
                 .keyboardShortcut("+")
             Button("Zoom Out") { viewport.zoomCentered(by: 0.8) }

@@ -28,7 +28,7 @@ swift run PCBReview Tests/KiCadKitTests/Fixtures/THRH_Node.kicad_pcb
 
 Or open `Package.swift` in Xcode and run the `PCBReview` scheme, then use File › Open Board (⌘O).
 
-Navigation: pinch, ⌘-scroll or ⌘+ / ⌘− to zoom (a mouse wheel zooms directly), two-finger scroll, drag or the arrow keys to pan (Shift moves further), ⌘0 to fit, click to select, Esc to clear the selection.
+Navigation: pinch, ⌘-scroll, ⌘+ (also ⌘ numpad + or ⌘⇧1) / ⌘− to zoom (a mouse wheel zooms directly), two-finger scroll, drag or the arrow keys to pan (Shift moves further), ⌘0 to fit, click to select, Esc to clear the selection.
 
 - Tabs above the board: All active layers, then each copper layer (⌘1, ⌘2, …).
 - Layers: green check marks switch layers on and off; click a colour swatch to change its colour (right-click to reset).
