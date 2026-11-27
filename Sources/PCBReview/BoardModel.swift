@@ -34,6 +34,9 @@ final class BoardModel: ObservableObject {
     @Published var showHoleSpacingX = false { didSet { if showHoleSpacingX { activateDrawings() } } }
     @Published var showHoleSpacingY = false { didSet { if showHoleSpacingY { activateDrawings() } } }
 
+    /// Colours the user picked for layers, remembered between launches.
+    @Published private(set) var customColors: [String: Color] = BoardModel.loadColors()
+
     @Published var selection: BoardItem? {
         didSet { updateHighlight() }
     }
@@ -44,6 +47,15 @@ final class BoardModel: ObservableObject {
     @Published var fitRequest = 0
 
     static let drawingsLayer = "Dwgs.User"
+
+    /// Paper, orientation and margins from File › Page Setup.
+    let printInfo: NSPrintInfo = {
+        let info = NSPrintInfo.shared.copy() as! NSPrintInfo
+        info.orientation = .landscape
+        info.isHorizontallyCentered = true
+        info.isVerticallyCentered = true
+        return info
+    }()
 
     var windowTitle: String { url?.lastPathComponent ?? "PCB Review" }
 
@@ -117,6 +129,53 @@ final class BoardModel: ObservableObject {
     }
 
     func isActive(_ layer: String) -> Bool { visibleLayers.contains(layer) }
+
+    // MARK: Layer colours
+
+    func color(of layer: String) -> Color {
+        customColors[layer] ?? scene?.color(of: layer) ?? .gray
+    }
+
+    func setColor(_ color: Color, for layer: String) {
+        customColors[layer] = color
+        saveColors()
+    }
+
+    func resetColor(for layer: String) {
+        customColors[layer] = nil
+        saveColors()
+    }
+
+    /// Every listed layer's current colour, for drawing.
+    var renderColors: [String: Color] {
+        Dictionary(uniqueKeysWithValues: layerList.map { ($0.name, color(of: $0.name)) })
+    }
+
+    /// The options the canvas draws with right now.
+    var renderOptions: RenderOptions {
+        RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
+                      showVias: showVias, highlight: highlight)
+    }
+
+    private static let colorsKey = "layerColors"
+
+    private static func loadColors() -> [String: Color] {
+        guard let stored = UserDefaults.standard.dictionary(forKey: colorsKey) as? [String: [Double]] else { return [:] }
+        var out: [String: Color] = [:]
+        for (layer, c) in stored where c.count == 4 {
+            out[layer] = Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: c[3])
+        }
+        return out
+    }
+
+    private func saveColors() {
+        var stored: [String: [Double]] = [:]
+        for (layer, color) in customColors {
+            let rgba = color.rgba
+            stored[layer] = [rgba.r, rgba.g, rgba.b, rgba.a]
+        }
+        UserDefaults.standard.set(stored, forKey: Self.colorsKey)
+    }
 
     func toggle(_ layer: String) {
         if visibleLayers.contains(layer) { visibleLayers.remove(layer) } else { visibleLayers.insert(layer) }

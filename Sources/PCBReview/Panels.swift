@@ -35,29 +35,45 @@ struct LayerPanel: View {
         .listStyle(.sidebar)
     }
 
-    /// A layer row: a green check mark activates or deactivates the layer.
+    /// A layer row: a green check mark activates or deactivates the layer;
+    /// clicking the colour swatch opens the colour picker for it.
     private func row(_ layer: LayerInfo) -> some View {
         let active = model.isActive(layer.name)
-        return Button {
-            model.toggle(layer.name)
-        } label: {
-            HStack(spacing: 7) {
+        return HStack(spacing: 7) {
+            Button {
+                model.toggle(layer.name)
+            } label: {
                 Image(systemName: active ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(active ? Color.green : Color.secondary)
                     .font(.system(size: 14))
-                RoundedRectangle(cornerRadius: 2)
-                    .fill(layer.color)
-                    .frame(width: 12, height: 12)
-                    .opacity(active ? 1 : 0.4)
-                Text(layer.displayName)
-                    .lineLimit(1)
-                    .foregroundStyle(active ? Color.primary : Color.secondary)
-                Spacer(minLength: 0)
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
+
+            ColorPicker("", selection: Binding(
+                get: { model.color(of: layer.name) },
+                set: { model.setColor($0, for: layer.name) }
+            ), supportsOpacity: false)
+            .labelsHidden()
+            .frame(width: 26, height: 16)
+            .help("Choose a colour for \(layer.name)")
+            .contextMenu {
+                Button("Reset Colour") { model.resetColor(for: layer.name) }
+            }
+
+            Button {
+                model.toggle(layer.name)
+            } label: {
+                HStack {
+                    Text(layer.displayName)
+                        .lineLimit(1)
+                        .foregroundStyle(active ? Color.primary : Color.secondary)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
     }
 }
 
@@ -74,8 +90,8 @@ struct LayerTabBar: View {
                         model.tab = tab
                     } label: {
                         HStack(spacing: 6) {
-                            if case .copper(let name) = tab, let info = model.layerList.first(where: { $0.name == name }) {
-                                RoundedRectangle(cornerRadius: 2).fill(info.color).frame(width: 10, height: 10)
+                            if case .copper(let name) = tab {
+                                RoundedRectangle(cornerRadius: 2).fill(model.color(of: name)).frame(width: 10, height: 10)
                             }
                             Text(model.title(of: tab))
                             if index < 9 {
@@ -94,6 +110,32 @@ struct LayerTabBar: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 5)
         }
+        .overlay(alignment: .trailing) {
+            FlipButtons()
+                .padding(.trailing, 8)
+        }
+        .background(.bar)
+    }
+}
+
+/// Flip X / Flip Y toggles. A separate view so only it redraws when the viewport changes.
+struct FlipButtons: View {
+    @EnvironmentObject var viewport: Viewport
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Toggle(isOn: Binding(get: { viewport.flipX }, set: { viewport.setFlip(x: $0) })) {
+                Label("Flip X", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+            }
+            .help("Mirror left–right (⇧⌘X)")
+            Toggle(isOn: Binding(get: { viewport.flipY }, set: { viewport.setFlip(y: $0) })) {
+                Label("Flip Y", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+            }
+            .help("Mirror top–bottom (⇧⌘Y)")
+        }
+        .toggleStyle(.button)
+        .controlSize(.small)
+        .labelStyle(.titleAndIcon)
         .background(.bar)
     }
 }

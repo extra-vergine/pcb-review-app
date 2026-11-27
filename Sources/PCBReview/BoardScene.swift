@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import KiCadKit
 
@@ -35,6 +36,8 @@ struct BoardScene {
     let viaPaths: Path
     let holes: Path
     let bounds: Rect
+    /// The board shape (outline polygon, or the bounds if the outline does not close).
+    let substrate: Path
 
     init(board: Board) {
         var paths: [String: LayerPaths] = [:]
@@ -138,6 +141,13 @@ struct BoardScene {
         self.bounds = board.outlineBounds
             ?? Rect.enclosing(board.pads.map(\.position) + board.tracks.flatMap { [$0.start, $0.end] })
             ?? Rect(minX: 0, minY: 0, maxX: 100, maxY: 100)
+        var substrate = Path()
+        if let outline = board.outlinePolygon {
+            polygon(outline, into: &substrate)
+        } else if let b = board.outlineBounds {
+            substrate.addRect(CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height))
+        }
+        self.substrate = substrate
     }
 
     func color(of layer: String) -> Color {
@@ -235,4 +245,12 @@ extension Point {
 
 extension CGPoint {
     var board: Point { Point(Double(x), Double(y)) }
+}
+
+extension Color {
+    /// sRGB components, for saving and for the vector exports.
+    var rgba: RGBA {
+        let ns = NSColor(self).usingColorSpace(.sRGB) ?? NSColor.gray
+        return RGBA(Double(ns.redComponent), Double(ns.greenComponent), Double(ns.blueComponent), Double(ns.alphaComponent))
+    }
 }

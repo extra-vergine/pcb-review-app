@@ -28,6 +28,21 @@ struct PCBReviewApp: App {
                 Button("Open Board…") { model.showOpenPanel() }
                     .keyboardShortcut("o")
             }
+            CommandGroup(replacing: .importExport) {
+                Menu("Export") {
+                    ForEach(ExportFormat.allCases) { format in
+                        Button(format.menuTitle) { Exporter.export(format, model: model, viewport: viewport) }
+                    }
+                }
+                .disabled(model.input == nil)
+            }
+            CommandGroup(replacing: .printItem) {
+                Button("Page Setup…") { Exporter.pageSetup(model: model) }
+                    .keyboardShortcut("p", modifiers: [.command, .shift])
+                Button("Print…") { Exporter.print(model: model, viewport: viewport) }
+                    .keyboardShortcut("p")
+                    .disabled(model.input == nil)
+            }
             ViewCommands(model: model, viewport: viewport)
         }
     }
@@ -46,6 +61,11 @@ struct ViewCommands: Commands {
                 .keyboardShortcut("-")
             Button("Zoom to Fit") { model.fitRequest += 1 }
                 .keyboardShortcut("0")
+            Divider()
+            Button("Flip X (Mirror Left–Right)") { viewport.setFlip(x: !viewport.flipX) }
+                .keyboardShortcut("x", modifiers: [.command, .shift])
+            Button("Flip Y (Mirror Top–Bottom)") { viewport.setFlip(y: !viewport.flipY) }
+                .keyboardShortcut("y", modifiers: [.command, .shift])
             Divider()
             Button(model.showRulers ? "Hide Rulers" : "Show Rulers") { model.showRulers.toggle() }
                 .keyboardShortcut("r")

@@ -3,14 +3,13 @@ import SwiftUI
 import KiCadKit
 
 /// The board drawing: layers, zoom (pinch, ⌘-scroll, mouse wheel, ⌘+ / ⌘−),
-/// pan (two-finger scroll or drag), click to select, rulers, origin and dimensions.
+/// pan (two-finger scroll, drag or arrow keys), click to select, rulers, origin and dimensions.
 struct BoardCanvasView: View {
     let board: Board
     @EnvironmentObject var model: BoardModel
     @EnvironmentObject var viewport: Viewport
+    @State private var keyMonitor: Any?
 
-    static let background = Color(red: 0.07, green: 0.08, blue: 0.09)
-    static let substrate = Color(red: 0.11, green: 0.14, blue: 0.13)
     static let rulerSize: CGFloat = 22
 
     var body: some View {
@@ -35,7 +34,9 @@ struct BoardCanvasView: View {
             .onAppear {
                 viewport.size = geo.size
                 fit()
+                installKeyMonitor()
             }
+            .onDisappear(perform: removeKeyMonitor)
             .onChange(of: geo.size) { newSize in
                 let first = viewport.size == .zero
                 viewport.size = newSize
@@ -59,93 +60,54 @@ struct BoardCanvasView: View {
         }
     }
 
-    // MARK: Board
+    /// Arrow keys move the board (Shift moves further), unless a text field has focus.
+    private func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [viewport] event in
+            if NSApp.keyWindow?.firstResponder is NSText { return event }
+            let mods = event.modifierFlags.intersection([.command, .option, .control])
+            guard mods.isEmpty else { return event }
+            let step: CGFloat = event.modifierFlags.contains(.shift) ? 200 : 40
+            switch event.keyCode {
+            case 123: viewport.pan(by: CGSize(width: -step, height: 0))   // left
+            case 124: viewport.pan(by: CGSize(width: step, height: 0))    // right
+            case 125: viewport.pan(by: CGSize(width: 0, height: step))    // down
+            case 126: viewport.pan(by: CGSize(width: 0, height: -step))   // up
+            default: return event
+            }
+            return nil
+        }
+    }
+
+    private func removeKeyMonitor() {
+        if let m = keyMonitor { NSEvent.removeMonitor(m) }
+        keyMonitor = nil
+    }
+
+    // MARK: Drawing
 
     private var boardCanvas: some View {
         let scene = model.scene
-        let drawn = model.drawnLayers
-        let showFills = model.showZoneFills
-        let showVias = model.showVias
-        let highlight = model.highlight
-        let scale = viewport.scale
-        let offset = viewport.offset
-
+        let options = model.renderOptions
+        let t = viewport.transform
         return Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.background))
-            guard let scene else { return }
-            var c = ctx
-            c.concatenate(CGAffineTransform(translationX: offset.width, y: offset.height).scaledBy(x: scale, y: scale))
-
-            let b = scene.bounds
-            c.fill(Path(CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height)), with: .color(Self.substrate))
-
-            let dim: Double = highlight?.net == nil ? 1 : 0.45
-            var anyCopperDrawn = false
-            for layer in scene.drawOrder where drawn.contains(layer) {
-                guard let lp = scene.paths[layer] else { continue }
-                let color = scene.color(of: layer)
-                if layer.hasSuffix(".Cu") { anyCopperDrawn = true }
-                if showFills { c.fill(lp.zoneFills, with: .color(color.opacity(0.32 * dim))) }
-                for g in lp.tracks {
-                    c.stroke(g.path, with: .color(color.opacity(0.9 * dim)),
-                             style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
-                }
-                c.fill(lp.pads, with: .color(color.opacity(0.95 * dim)))
-                c.fill(lp.filledGraphics, with: .color(color.opacity(0.9)))
-                for g in lp.graphics {
-                    c.stroke(g.path, with: .color(color.opacity(0.9)),
-                             style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
-                }
-            }
-
-            if anyCopperDrawn {
-                if showVias { c.fill(scene.viaPaths, with: .color(Color(white: 0.72).opacity(dim))) }
-                c.fill(scene.holes, with: .color(Self.background))
-            }
-
-            if let h = highlight {
-                let glow = Color.white.opacity(0.55)
-                for layer in scene.drawOrder where drawn.contains(layer) {
-                    guard let lp = h.netPaths[layer] else { continue }
-                    for g in lp.tracks {
-                        c.stroke(g.path, with: .color(glow), style: StrokeStyle(lineWidth: g.width, lineCap: .round, lineJoin: .round))
-                    }
-                    c.fill(lp.pads, with: .color(glow))
-                }
-                if showVias && anyCopperDrawn { c.fill(h.viaPaths, with: .color(glow)) }
-                c.stroke(h.selectedOutline, with: .color(.cyan),
-                         style: StrokeStyle(lineWidth: 2 / scale, lineCap: .round, lineJoin: .round))
+            if let scene {
+                BoardRenderer.draw(scene, in: ctx, size: size, transform: t, options: options)
+            } else {
+                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(RenderOptions.background))
             }
         }
     }
 
-    // MARK: Origin and dimensions (drawn in screen space so text and arrows keep their size)
-
     private var overlayCanvas: some View {
         let dims = model.dimensions
         let units = model.units
-        let showOrigin = model.showOrigin
-        let origin = board.userOrigin
-        let dimColor = model.scene?.color(of: BoardModel.drawingsLayer) ?? .gray
-        let vp = (scale: viewport.scale, offset: viewport.offset)
-        func screen(_ p: Point) -> CGPoint {
-            CGPoint(x: CGFloat(p.x) * vp.scale + vp.offset.width, y: CGFloat(p.y) * vp.scale + vp.offset.height)
-        }
-
+        let origin: Point? = model.showOrigin ? board.userOrigin : nil
+        let dimColor = model.color(of: BoardModel.drawingsLayer)
+        let t = viewport.transform
         return Canvas { ctx, _ in
-            for d in dims {
-                DimensionRenderer.draw(d, in: ctx, color: dimColor, units: units, toScreen: screen)
-            }
-            if showOrigin {
-                let o = screen(origin)
-                var cross = Path()
-                cross.move(to: CGPoint(x: o.x - 12, y: o.y)); cross.addLine(to: CGPoint(x: o.x + 12, y: o.y))
-                cross.move(to: CGPoint(x: o.x, y: o.y - 12)); cross.addLine(to: CGPoint(x: o.x, y: o.y + 12))
-                let ring = Path(ellipseIn: CGRect(x: o.x - 6, y: o.y - 6, width: 12, height: 12))
-                let originColor = Color(red: 0.35, green: 0.85, blue: 0.95)
-                ctx.stroke(cross, with: .color(originColor), lineWidth: 1.2)
-                ctx.stroke(ring, with: .color(originColor), lineWidth: 1.2)
-            }
+            BoardRenderer.drawOverlay(in: ctx, transform: t, origin: origin, dimensions: dims,
+                                      dimensionColor: dimColor, units: units)
         }
     }
 
@@ -160,6 +122,9 @@ struct BoardCanvasView: View {
                 Text("X \(units.format(p.x - origin.x, withUnit: false))  Y \(units.format(origin.y - p.y, withUnit: false)) \(units.rawValue)")
             }
             Text(String(format: "%.0f px/mm", viewport.scale))
+            if viewport.flipX || viewport.flipY {
+                Text(viewport.flipX && viewport.flipY ? "Flipped X+Y" : viewport.flipX ? "Flipped X" : "Flipped Y")
+            }
             if let net = model.highlight?.net {
                 Text("Net: \(net)")
             }
@@ -268,8 +233,7 @@ struct RulersView: View {
 
     private func ruler(horizontal: Bool) -> some View {
         let unit = model.units
-        let scale = viewport.scale
-        let offset = viewport.offset
+        let t = viewport.transform
         let hover = viewport.hover
         let origin = self.origin
         let thickness = self.thickness
@@ -277,26 +241,26 @@ struct RulersView: View {
         return Canvas { ctx, size in
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Self.fill))
             let mmPerUnit = unit.millimetres
-            let pxPerUnit = Double(scale) * mmPerUnit
+            let pxPerUnit = Double(t.scale) * mmPerUnit
             let major = RulerTicks.step(pixelsPerUnit: pxPerUnit, minSpacing: 70)
             let minor = RulerTicks.minor(for: major)
             // The ruler's own drawing starts after the corner square.
-            let shift = thickness
+            let shift = Double(thickness)
             let length = Double(horizontal ? size.width : size.height)
 
-            // Screen position (in this ruler's coordinates) of a value in units.
+            // Ruler coordinate of a value in units, and back. X to the right, Y up, from the origin.
             func pos(_ u: Double) -> Double {
                 if horizontal {
-                    return (origin.x + u * mmPerUnit) * Double(scale) + Double(offset.width) - Double(shift)
+                    return Double(t.screen(Point(origin.x + u * mmPerUnit, 0)).x) - shift
                 } else {
-                    return (origin.y - u * mmPerUnit) * Double(scale) + Double(offset.height) - Double(shift)
+                    return Double(t.screen(Point(0, origin.y - u * mmPerUnit)).y) - shift
                 }
             }
-            func value(at screen: Double) -> Double {
+            func value(at r: Double) -> Double {
                 if horizontal {
-                    return ((screen + Double(shift) - Double(offset.width)) / Double(scale) - origin.x) / mmPerUnit
+                    return (t.board(CGPoint(x: r + shift, y: 0)).x - origin.x) / mmPerUnit
                 } else {
-                    return (origin.y - (screen + Double(shift) - Double(offset.height)) / Double(scale)) / mmPerUnit
+                    return (origin.y - t.board(CGPoint(x: 0, y: r + shift)).y) / mmPerUnit
                 }
             }
             let u0 = value(at: 0), u1 = value(at: length)
@@ -323,10 +287,10 @@ struct RulersView: View {
                     if horizontal {
                         ctx.draw(text, at: CGPoint(x: p + 3, y: 2), anchor: .topLeading)
                     } else {
-                        var t = ctx
-                        t.translateBy(x: 2, y: p - 3)
-                        t.rotate(by: .degrees(-90))
-                        t.draw(text, at: .zero, anchor: .topLeading)
+                        var c = ctx
+                        c.translateBy(x: 2, y: p - 3)
+                        c.rotate(by: .degrees(-90))
+                        c.draw(text, at: .zero, anchor: .topLeading)
                     }
                 }
                 k += 1
@@ -335,9 +299,8 @@ struct RulersView: View {
 
             // Cursor marker.
             if let h = hover {
-                let p = horizontal
-                    ? CGFloat(h.x) * scale + offset.width - shift
-                    : CGFloat(h.y) * scale + offset.height - shift
+                let s = t.screen(h)
+                let p = (horizontal ? s.x : s.y) - CGFloat(shift)
                 var m = Path()
                 if horizontal { m.move(to: CGPoint(x: p, y: 0)); m.addLine(to: CGPoint(x: p, y: thickness)) }
                 else { m.move(to: CGPoint(x: 0, y: p)); m.addLine(to: CGPoint(x: thickness, y: p)) }
