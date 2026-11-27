@@ -98,6 +98,15 @@ struct FindingsPanel: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
             }
+            HStack {
+                Button(model.drcFindings == nil ? "Cross-check with KiCad DRC" : "Run KiCad DRC Again") { model.runKiCadDRC() }
+                    .disabled(model.isRunningDRC)
+                    .help("Runs kicad-cli pcb drc on the board file and lists its results in their own section")
+                if model.isRunningDRC { ProgressView().controlSize(.small) }
+            }
+            if let status = model.drcStatus {
+                Text(status).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
     }
 
@@ -151,6 +160,8 @@ struct FindingsPanel: View {
         case .fab(_, let name):
             let checked = model.report?.profile?.checked ?? ""
             return Text("\(name) limits, checked \(checked)")
+        case .kicadDRC:
+            return Text("KiCad's own DRC (kicad-cli), as a cross-check")
         }
     }
 

@@ -7,10 +7,13 @@ import Foundation
 public enum CheckSuite: Hashable, Sendable {
     case kicad
     case fab(id: String, name: String)
+    /// KiCad's own DRC, run through `kicad-cli pcb drc` as a cross-check.
+    case kicadDRC
 
     public var title: String {
         switch self {
         case .kicad: return "KiCad rules"
+        case .kicadDRC: return "KiCad DRC (kicad-cli)"
         case .fab(_, let name): return name
         }
     }
@@ -22,6 +25,7 @@ public enum CheckKind: String, CaseIterable, Sendable {
     case padDrill, padAnnularRing, slotWidth
     case silkLineWidth, textHeight, textThickness, silkToPad
     case boardThickness, ruleNotChecked
+    case drcViolation, drcUnconnected, drcParity
 
     public var title: String {
         switch self {
@@ -42,6 +46,9 @@ public enum CheckKind: String, CaseIterable, Sendable {
         case .silkToPad: return "Silkscreen to pad"
         case .boardThickness: return "Board thickness"
         case .ruleNotChecked: return "Rules not checked"
+        case .drcViolation: return "Violations"
+        case .drcUnconnected: return "Unconnected items"
+        case .drcParity: return "Schematic parity"
         }
     }
 }

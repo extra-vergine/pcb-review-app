@@ -45,6 +45,8 @@ The Findings panel (right side) runs deterministic checks when a board opens, in
 
 Checked: copper clearance (tracks, pads, vias, zone fills), hole to copper, hole to hole, copper to board edge, track width, via size, drill and annular ring, pad drill, slot width and annular ring, silkscreen line width and clearance to pads, text height and thickness, board thickness. Not checked yet: connectivity (unrouted nets), zone fill rules, courtyards and solder mask. Use KiCad's own DRC for those.
 
+- **KiCad DRC cross-check**: the "Cross-check with KiCad DRC" button runs `kicad-cli pcb drc` (from KiCad in /Applications) on the same file and lists its violations, unconnected items and parity problems in a third section, so the two can be compared.
+
 Click a finding to zoom to it. Checks › Next / Previous Finding (⌘] / ⌘[), Run Checks Again (⇧⌘K), Copy Findings as Text (⇧⌘C).
 
 ```sh

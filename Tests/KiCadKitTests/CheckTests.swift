@@ -156,3 +156,32 @@ final class DesignCheckTests: XCTestCase {
         }
     }
 }
+
+final class KiCadDRCReportTests: XCTestCase {
+    func testParse() throws {
+        let board = BoardParserTests.input.board
+        let track = try XCTUnwrap(board.tracks.first)
+        let json = """
+        {"$schema": "https://schemas.kicad.org/drc.v1.json", "coordinate_units": "mm", "kicad_version": "10.0.0",
+         "source": "THRH_Node.kicad_pcb",
+         "violations": [{"type": "clearance", "severity": "error",
+            "description": "Clearance violation (netclass 'Default' clearance 0.1500 mm; actual 0.1200 mm)",
+            "items": [{"description": "Track [GND] on F.Cu", "pos": {"x": 120.5, "y": 110.25}, "uuid": "\(track.uuid ?? "")"},
+                      {"description": "Pad 1 [VCC] of R1 on F.Cu", "pos": {"x": 120.7, "y": 110.3}, "uuid": "nope"}]}],
+         "unconnected_items": [{"type": "unconnected_items", "severity": "warning", "description": "Missing connection",
+            "items": [{"description": "Pad 2", "pos": {"x": 130, "y": 115}}]}],
+         "schematic_parity": []}
+        """
+        let f = try KiCadDRCReport.findings(from: Data(json.utf8), board: board)
+        XCTAssertEqual(f.count, 2)
+        XCTAssertEqual(f[0].suite, .kicadDRC)
+        XCTAssertEqual(f[0].kind, .drcViolation)
+        XCTAssertEqual(f[0].severity, .error)
+        XCTAssertEqual(f[0].location, Point(120.5, 110.25))
+        XCTAssertEqual(f[0].items, [.track(0)])
+        XCTAssertTrue(f[0].message.hasPrefix("Clearance violation"))
+        XCTAssertEqual(f[1].kind, .drcUnconnected)
+        XCTAssertEqual(f[1].severity, .warning)
+        XCTAssertThrowsError(try KiCadDRCReport.findings(from: Data("{\"coordinate_units\": \"mils\"}".utf8), board: board))
+    }
+}

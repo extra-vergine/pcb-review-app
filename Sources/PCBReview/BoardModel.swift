@@ -149,6 +149,10 @@ final class BoardModel: ObservableObject {
     @Published var findingFilter: FindingFilter = .all
     @Published var sidePanel: SidePanel = .findings
     @Published var focusRequest: FocusRequest?
+    /// Findings from KiCad's own DRC (`kicad-cli`), nil until it has run for this board.
+    @Published private(set) var drcFindings: [Finding]?
+    @Published private(set) var isRunningDRC = false
+    @Published private(set) var drcStatus: String?
 
     /// Paper, orientation and margins from File › Page Setup.
     let printInfo: NSPrintInfo = {
@@ -236,6 +240,8 @@ final class BoardModel: ObservableObject {
             self.fitRequest += 1
             self.report = nil
             self.selectedFindingID = nil
+            self.drcFindings = nil
+            self.drcStatus = nil
             runChecks()
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {
@@ -262,7 +268,7 @@ final class BoardModel: ObservableObject {
                 guard generation == self.checkGeneration else { return }
                 self.report = report
                 self.isChecking = false
-                if let id = self.selectedFindingID, id >= report.findings.count { self.selectedFindingID = nil }
+                if let id = self.selectedFindingID, id < BoardModel.drcIDBase, id >= report.findings.count { self.selectedFindingID = nil }
             }
         }
     }
@@ -271,9 +277,10 @@ final class BoardModel: ObservableObject {
     /// KiCad rules first, then the fab; within each, by kind of check.
     var findingGroups: [FindingGroup] {
         guard let report else { return [] }
-        let shown = report.findings.filter { findingFilter.includes($0) }
+        let shown = allFindings.filter { findingFilter.includes($0) }
         var suites: [CheckSuite] = [.kicad]
         if let p = report.profile { suites.append(.fab(id: p.id, name: p.name)) }
+        if drcFindings != nil { suites.append(.kicadDRC) }
         return suites.map { suite in
             let mine = shown.filter { $0.suite == suite }
             let kinds = CheckKind.allCases.compactMap { kind -> FindingGroup.Kind? in
@@ -287,9 +294,77 @@ final class BoardModel: ObservableObject {
     /// The shown findings in list order, for next and previous.
     var orderedFindings: [Finding] { findingGroups.flatMap { $0.kinds.flatMap(\.findings) } }
 
+    /// This app's findings, then KiCad DRC's (whose ids start at `drcIDBase`).
+    var allFindings: [Finding] { (report?.findings ?? []) + (drcFindings ?? []) }
+    static let drcIDBase = 1_000_000
+
     var selectedFinding: Finding? {
-        guard let id = selectedFindingID, let r = report, id < r.findings.count else { return nil }
+        guard let id = selectedFindingID else { return nil }
+        if id >= Self.drcIDBase {
+            guard let d = drcFindings, id - Self.drcIDBase < d.count else { return nil }
+            return d[id - Self.drcIDBase]
+        }
+        guard let r = report, id < r.findings.count else { return nil }
         return r.findings[id]
+    }
+
+    // MARK: KiCad DRC cross-check
+
+    /// Where kicad-cli is installed, if it is.
+    static let kicadCLI: String? = [
+        "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+        "/Applications/KiCad.app/Contents/MacOS/kicad-cli",
+        "/opt/homebrew/bin/kicad-cli",
+        "/usr/local/bin/kicad-cli",
+    ].first { FileManager.default.isExecutableFile(atPath: $0) }
+
+    /// Runs `kicad-cli pcb drc` on the open file and shows its results as a third section.
+    func runKiCadDRC() {
+        guard let url, let board = input?.board else { return }
+        guard let cli = Self.kicadCLI else {
+            drcStatus = "kicad-cli was not found. Install KiCad in /Applications to use the cross-check."
+            return
+        }
+        isRunningDRC = true
+        drcStatus = "Running KiCad DRC…"
+        let idBase = Self.drcIDBase
+        Task.detached(priority: .userInitiated) {
+            let out = FileManager.default.temporaryDirectory.appendingPathComponent("pcbreview-drc-\(UUID().uuidString).json")
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: cli)
+            process.arguments = KiCadDRCReport.arguments(board: url, output: out)
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            var findings: [Finding]?
+            var message: String
+            do {
+                try process.run()
+                let log = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                if let json = try? Data(contentsOf: out) {
+                    findings = try KiCadDRCReport.findings(from: json, board: board)
+                    message = "KiCad DRC: \(findings?.count ?? 0) items"
+                } else {
+                    let text = String(decoding: log, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                    message = "KiCad DRC wrote no report (exit \(process.terminationStatus)): \(text.suffix(300))"
+                }
+            } catch {
+                message = "Could not run kicad-cli: \(error)"
+            }
+            try? FileManager.default.removeItem(at: out)
+            let result = findings?.enumerated().map { i, f -> Finding in
+                var f = f
+                f.id = idBase + i
+                return f
+            }
+            await MainActor.run {
+                guard self.url == url else { return }
+                self.isRunningDRC = false
+                self.drcStatus = message
+                if let result { self.drcFindings = result }
+            }
+        }
     }
 
     /// Selects a finding, makes its layer and items visible and zooms to it.
