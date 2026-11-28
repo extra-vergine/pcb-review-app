@@ -207,7 +207,7 @@ public enum VRMLReader {
                 var numbers: [Float] = []
                 var nodes: [Node] = []
                 while let x = peek(), x != "]" {
-                    if Self.isNumber(x) { numbers.append(Float(x) ?? 0); pos += 1 }
+                    if Self.isNumber(x) { numbers.append(Float(String(x)) ?? 0); pos += 1 }
                     else if let n = try parseNodeOrNil() { nodes.append(n) }
                     else { pos += 1 }
                 }
@@ -216,7 +216,7 @@ public enum VRMLReader {
             }
             if let n = try parseNodeOrNil() { return .node(n) }
             var numbers: [Float] = []
-            while let x = peek(), Self.isNumber(x) { numbers.append(Float(x) ?? 0); pos += 1 }
+            while let x = peek(), Self.isNumber(x) { numbers.append(Float(String(x)) ?? 0); pos += 1 }
             if !numbers.isEmpty { return .numbers(numbers) }
             pos += 1 // TRUE, FALSE, a string or an unknown word
             return .other
