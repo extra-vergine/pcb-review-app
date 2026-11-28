@@ -25,6 +25,7 @@ struct LayerPanel: View {
                     }
                 }
                 FlipButtons()
+                FrontBackButtons()
             }
             .controlSize(.large)
             .padding(.horizontal, 8)
@@ -312,6 +313,38 @@ struct FlipButtons: View {
         }
         .toggleStyle(.button)
         .labelStyle(.titleAndIcon)
+    }
+}
+
+/// Front: the board seen from the top side. Back: seen from the bottom side, mirrored
+/// as in KiCad's bottom view (2D), or with the camera underneath the board (3D).
+struct FrontBackButtons: View {
+    @EnvironmentObject var model: BoardModel
+    @EnvironmentObject var viewport: Viewport
+    @EnvironmentObject var threeD: ThreeDController
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { show(back: false) } label: {
+                Label("Front", systemImage: "square.3.layers.3d.top.filled").frame(maxWidth: .infinity)
+            }
+            .help("View the board from the top side")
+            Button { show(back: true) } label: {
+                Label("Back", systemImage: "square.3.layers.3d.bottom.filled").frame(maxWidth: .infinity)
+            }
+            .help("View the board from the bottom side")
+        }
+        .labelStyle(.titleAndIcon)
+    }
+
+    private func show(back: Bool) {
+        if model.viewMode == .threeD {
+            // The camera underneath already shows the bottom mirrored, so no flips.
+            viewport.setFlip(x: false, y: false)
+            threeD.look(from: SIMD3(0, back ? -1 : 1, 0))
+        } else {
+            viewport.setFlip(x: back, y: false)
+        }
     }
 }
 
