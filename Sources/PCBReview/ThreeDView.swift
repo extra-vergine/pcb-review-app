@@ -46,16 +46,22 @@ final class ThreeDController: ObservableObject {
         camera.fieldOfView = 35
         cameraNode.camera = camera
         scene.rootNode.addChildNode(cameraNode)
+        // Ambient light, plus a key and a fill light that ride with the camera, so whichever
+        // side is in view is lit the same and shadows fall away from the viewer.
         for (type, intensity, angles) in [(SCNLight.LightType.ambient, 420.0, SIMD3<Float>(0, 0, 0)),
-                                           (.directional, 950, SIMD3(-1.0, 0.5, 0)),
-                                           (.directional, 380, SIMD3(2.3, -0.6, 0))] {
+                                           (.directional, 950, SIMD3(-0.45, -0.4, 0)),
+                                           (.directional, 380, SIMD3(0.3, 0.7, 0))] {
             let n = SCNNode()
             n.light = SCNLight()
             n.light?.type = type
             n.light?.intensity = CGFloat(intensity)
             n.simdEulerAngles = angles
-            scene.rootNode.addChildNode(n)
-            if angles.x == -1.0 { keyLight = n }
+            if type == .ambient {
+                scene.rootNode.addChildNode(n)
+            } else {
+                cameraNode.addChildNode(n)
+                if intensity > 900 { keyLight = n }
+            }
         }
         // The key light casts a soft shadow onto an invisible floor just under the board.
         if let light = keyLight?.light {
@@ -111,12 +117,17 @@ final class ThreeDController: ObservableObject {
     }
 
     private func updateShadowFloor() {
-        let y = -max(boardSize * 0.03, 0.001)
-        shadowFloor.simdPosition = SIMD3(0, y + 0.00002, 0)
+        let gap = max(boardSize * 0.03, 0.001)
+        let y = -gap
+        // The shadow lands on the far side of the board from the camera: below it when
+        // looking from above, above it (a ceiling) when looking from below.
+        let fromBelow = pitch < 0
+        shadowFloor.simdPosition = SIMD3(0, fromBelow ? thickness + gap - 0.00002 : y + 0.00002, 0)
+        shadowFloor.simdEulerAngles = SIMD3(fromBelow ? .pi : 0, 0, 0)
         reflectionFloor.simdPosition = SIMD3(0, y, 0)
         (reflectionFloor.geometry as? SCNFloor)?.reflectionFalloffEnd = CGFloat(boardSize * 0.6)
-        // From below, the floor would sit between the camera and the board.
-        shadowFloor.isHidden = !shadowOn || pitch < 0.02
+        shadowFloor.isHidden = !shadowOn || abs(pitch) < 0.02
+        // From below, the reflecting floor would sit between the camera and the board.
         reflectionFloor.isHidden = !reflectionOn || pitch < 0.02
     }
 
