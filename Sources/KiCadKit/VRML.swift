@@ -244,24 +244,69 @@ public enum ModelLibrary {
         return roots
     }
 
-    /// The `.wrl` file for `path` (KiCad ships one next to each `.step`), or nil.
-    public static func resolve(_ path: String, boardFolder: URL, roots: [String] = defaultRoots) -> URL? {
+    /// KiCad's path variables set in its preferences (Preferences › Configure Paths),
+    /// from the newest `kicad_common.json`, e.g. `MY_3D_MODELS` → `/Users/me/3d`.
+    public static var userPathVariables: [String: String] {
+        let fm = FileManager.default
+        let home = NSHomeDirectory()
+        var dirs = [home + "/Library/Preferences/kicad", home + "/.config/kicad"]
+        if let x = ProcessInfo.processInfo.environment["XDG_CONFIG_HOME"] { dirs.append(x + "/kicad") }
+        var best: (version: Double, url: URL)?
+        for d in dirs {
+            for v in (try? fm.contentsOfDirectory(atPath: d)) ?? [] {
+                let url = URL(fileURLWithPath: d).appendingPathComponent(v).appendingPathComponent("kicad_common.json")
+                guard fm.fileExists(atPath: url.path) else { continue }
+                let n = Double(v) ?? 0
+                if best == nil || n > best!.version { best = (n, url) }
+            }
+        }
+        guard let url = best?.url, let data = try? Data(contentsOf: url),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let env = json["environment"] as? [String: Any],
+              let vars = env["vars"] as? [String: String] else { return [:] }
+        return vars
+    }
+
+    /// Fills in `${NAME}` and `$(NAME)` from `variables`, leaving unknown names in place.
+    public static func expand(_ path: String, _ variables: [String: String]) -> String {
+        var out = path
+        for (open, close) in [("${", "}"), ("$(", ")")] {
+            while let a = out.range(of: open), let b = out[a.upperBound...].range(of: close) {
+                let name = String(out[a.upperBound..<b.lowerBound])
+                guard let value = variables[name] else { break }
+                out.replaceSubrange(a.lowerBound..<b.upperBound, with: value)
+            }
+        }
+        return out
+    }
+
+    /// The VRML file for a model path, or nil. The path may use `${KIPRJMOD}`, KiCad's
+    /// library variables, the user's own path variables or environment variables, or be
+    /// absolute or relative to the board. A `.wrl` next to a `.step` is used, as KiCad's
+    /// libraries ship both. STEP-only models are left to `ModelConversion`.
+    public static func resolve(_ path: String, boardFolder: URL, roots: [String] = defaultRoots,
+                               variables: [String: String]? = nil) -> URL? {
         var candidates: [String] = []
-        if let r = path.range(of: #"\$\{KICAD\d*_3DMODEL_DIR\}"#, options: .regularExpression) {
-            let rest = String(path[r.upperBound...])
+        let trimmed = path.trimmingCharacters(in: .whitespaces)
+        if let r = trimmed.range(of: #"\$\{KICAD\d*_3DMODEL_DIR\}"#, options: .regularExpression), r.lowerBound == trimmed.startIndex {
+            let rest = String(trimmed[r.upperBound...])
             candidates = roots.map { $0 + rest }
-        } else if path.hasPrefix("${KIPRJMOD}") {
-            candidates = [boardFolder.path + path.dropFirst("${KIPRJMOD}".count)]
-        } else if path.hasPrefix("/") {
-            candidates = [path]
-        } else {
-            candidates = [boardFolder.appendingPathComponent(path).path]
+        }
+        var vars = ProcessInfo.processInfo.environment
+        for (k, v) in variables ?? userPathVariables { vars[k] = v }
+        vars["KIPRJMOD"] = boardFolder.path
+        var expanded = expand(trimmed, vars)
+        if expanded.hasPrefix("~") { expanded = (expanded as NSString).expandingTildeInPath }
+        if !expanded.contains("${") && !expanded.contains("$(") {
+            candidates.append(expanded.hasPrefix("/") ? expanded : boardFolder.appendingPathComponent(expanded).path)
         }
         let fm = FileManager.default
         for c in candidates {
+            let ext = (c as NSString).pathExtension.lowercased()
+            if ext == "wrl" || ext == "vrml", fm.fileExists(atPath: c) { return URL(fileURLWithPath: c) }
             let base = (c as NSString).deletingPathExtension
-            for ext in ["wrl", "WRL"] where fm.fileExists(atPath: base + "." + ext) {
-                return URL(fileURLWithPath: base + "." + ext)
+            for e in ["wrl", "WRL", "vrml"] where fm.fileExists(atPath: base + "." + e) {
+                return URL(fileURLWithPath: base + "." + e)
             }
         }
         return nil
@@ -291,10 +336,13 @@ public enum ModelConversion {
 
     /// Runs the conversion once per board version. Returns the `.wrl` files by
     /// lower-cased file name without extension, and kicad-cli's output if it failed.
-    public static func convert(cli: String, board: URL) -> (models: [String: URL], log: String?) {
+    /// With `force`, converts again even if this board version was converted before
+    /// (for models added to the project since).
+    public static func convert(cli: String, board: URL, force: Bool = false) -> (models: [String: URL], log: String?) {
         let folder = cacheFolder(for: board)
         let fm = FileManager.default
         var log: String?
+        if force { try? fm.removeItem(at: folder) }
         if !fm.fileExists(atPath: folder.appendingPathComponent("board.wrl").path) {
             try? fm.createDirectory(at: folder.appendingPathComponent("models"), withIntermediateDirectories: true)
             let process = Process()

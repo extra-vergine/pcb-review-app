@@ -682,6 +682,9 @@ enum BoardTextures {
 /// Places each footprint's 3D model on the board: KiCad's VRML model when it
 /// can be found, else a box the size of the footprint body.
 enum ComponentModels {
+    /// Boards converted again in this session because models were missing.
+    static var refreshed: Set<String> = []
+
     struct Result: @unchecked Sendable {
         let node: SCNNode
         let summary: String
@@ -700,17 +703,33 @@ enum ComponentModels {
         // KiCad's .wrl files next to the .step files first; the rest converted by kicad-cli.
         var direct: [String: URL] = [:]
         var missing = false
+        let variables = ModelLibrary.userPathVariables
         for fp in footprints {
             for m in fp.models where !m.hidden {
-                if let url = ModelLibrary.resolve(m.path, boardFolder: folder) { direct[m.path] = url } else { missing = true }
+                if let url = ModelLibrary.resolve(m.path, boardFolder: folder, variables: variables) {
+                    direct[m.path] = url
+                } else {
+                    missing = true
+                }
             }
         }
         var converted: [String: URL] = [:]
         var conversionLog: String?
+        func stillMissing() -> [String] {
+            footprints.flatMap { fp in fp.models.filter { !$0.hidden && direct[$0.path] == nil } }
+                .map(\.path).filter { converted[ModelConversion.key(for: $0)] == nil }
+        }
         if missing, let cli {
             progress("Converting the STEP models with kicad-cli. The first time can take a minute…")
             (converted, conversionLog) = ModelConversion.convert(cli: cli, board: boardURL)
+            // Models added to the project after an earlier conversion: convert once more.
+            if !stillMissing().isEmpty && !refreshed.contains(boardURL.path) {
+                refreshed.insert(boardURL.path)
+                progress("Looking for new 3D models with kicad-cli…")
+                (converted, conversionLog) = ModelConversion.convert(cli: cli, board: boardURL, force: true)
+            }
         }
+        let unresolved = Array(Set(stillMissing().map { ($0 as NSString).lastPathComponent })).sorted()
 
         // Converted models: find the file unit by comparing model and footprint sizes.
         var raw: [URL: [ModelPart]] = [:]
@@ -756,9 +775,13 @@ enum ComponentModels {
                 summary += ". Install KiCad in /Applications so its STEP models can be converted"
             } else if let conversionLog, !conversionLog.isEmpty {
                 summary += ". kicad-cli said: " + String(conversionLog.split(separator: "\n").last ?? "")
-            } else {
-                summary += " (no 3D model in the file, or the model file was not found)"
+            } else if unresolved.isEmpty {
+                summary += " (they have no 3D model in the board file)"
             }
+        }
+        if !unresolved.isEmpty {
+            let names = unresolved.prefix(4).joined(separator: ", ") + (unresolved.count > 4 ? " and \(unresolved.count - 4) more" : "")
+            summary += ". Not found: " + names
         }
         return Result(node: root, summary: summary)
     }

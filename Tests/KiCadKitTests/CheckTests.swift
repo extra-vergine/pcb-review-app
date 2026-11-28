@@ -240,6 +240,17 @@ final class ModelTests: XCTestCase {
         XCTAssertNil(ModelLibrary.resolve("${KIPRJMOD}/3dmodels/missing.step", boardFolder: dir, roots: []))
     }
 
+    func testResolveUserVariables() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("vars-\(UUID().uuidString)")
+        let lib = dir.appendingPathComponent("my3d")
+        try FileManager.default.createDirectory(at: lib, withIntermediateDirectories: true)
+        try Data("#VRML V2.0 utf8".utf8).write(to: lib.appendingPathComponent("Relay.wrl"))
+        XCTAssertEqual(ModelLibrary.resolve("${MY_3D}/Relay.step", boardFolder: dir, roots: [], variables: ["MY_3D": lib.path])?.lastPathComponent, "Relay.wrl")
+        XCTAssertEqual(ModelLibrary.resolve("my3d/Relay.wrl", boardFolder: dir, roots: [], variables: [:])?.lastPathComponent, "Relay.wrl")
+        XCTAssertEqual(ModelLibrary.expand("$(A)/x/${B}", ["A": "/a", "B": "b"]), "/a/x/b")
+        XCTAssertEqual(ModelLibrary.expand("${NOPE}/x", [:]), "${NOPE}/x")
+    }
+
     func testModelConversion() {
         XCTAssertEqual(ModelConversion.key(for: "${KIPRJMOD}/3dmodels/RJ45_Abracon.STEP"), "rj45_abracon")
         let args = ModelConversion.arguments(board: URL(fileURLWithPath: "/b/x.kicad_pcb"), folder: URL(fileURLWithPath: "/c"))
