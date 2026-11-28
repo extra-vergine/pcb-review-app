@@ -747,8 +747,14 @@ enum ComponentModels {
         let unit = ModelConversion.bestUnit(ratios: ratios)
 
         var cache: [URL: [ModelPart]] = [:]
-        var found = 0, boxes = 0
+        var found = 0, boxes = 0, withoutModel = 0
         for fp in footprints {
+            // Like KiCad, draw nothing for a footprint whose board entry names no 3D model
+            // (test points, mounting holes, …); only its pads and silkscreen show.
+            guard fp.models.contains(where: { !$0.hidden }) else {
+                withoutModel += 1
+                continue
+            }
             var placed = false
             for m in fp.models where !m.hidden {
                 var parts: [ModelPart] = []
@@ -775,9 +781,10 @@ enum ComponentModels {
                 summary += ". Install KiCad in /Applications so its STEP models can be converted"
             } else if let conversionLog, !conversionLog.isEmpty {
                 summary += ". kicad-cli said: " + String(conversionLog.split(separator: "\n").last ?? "")
-            } else if unresolved.isEmpty {
-                summary += " (they have no 3D model in the board file)"
             }
+        }
+        if withoutModel > 0 {
+            summary += ". \(withoutModel) footprints have no 3D model in the board file, so they show only their pads, as in KiCad"
         }
         if !unresolved.isEmpty {
             let names = unresolved.prefix(4).joined(separator: ", ") + (unresolved.count > 4 ? " and \(unresolved.count - 4) more" : "")
