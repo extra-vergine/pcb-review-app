@@ -95,13 +95,12 @@ struct LayerPanel: View {
             groupToggle("Expand layers (3D)", \.expandLayers, in: Self.showHide)
                 .help("Pulls the copper layers apart in 3D, with vias as barrels, to see how they run from layer to layer")
             HStack(spacing: 8) {
+                Toggle("Background", isOn: $model.showBackground)
+                    .help("Off for no background (transparent), on screen and in the exports")
+                Spacer()
                 ColorSwatch(color: model.backgroundColor) { model.backgroundColor = $0 }
                     .contextMenu { Button("Reset Background") { model.resetBackground() } }
-                Text("Background")
-                Spacer()
-                Button("Reset") { model.resetBackground() }
-                    .buttonStyle(.link)
-                    .font(.caption)
+                    .opacity(model.showBackground ? 1 : 0.4)
             }
             .help("The background colour of the 2D and 3D views")
         }

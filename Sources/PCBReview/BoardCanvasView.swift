@@ -132,7 +132,9 @@ struct BoardCanvasView: View {
             if let scene {
                 BoardRenderer.draw(scene, in: ctx, size: size, transform: t, options: options)
             } else {
-                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(options.backgroundColor))
+                if options.fillBackground {
+                    ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(options.backgroundColor))
+                }
             }
         }
     }

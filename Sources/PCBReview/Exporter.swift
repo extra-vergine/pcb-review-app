@@ -171,6 +171,7 @@ enum Exporter {
     static func export(_ format: ExportFormat, model: BoardModel, viewport: Viewport) {
         guard let input = model.input, let scene = model.scene else { return }
         let settings = ExportSettings(includeDimensions: model.anyDimensionShown)
+        if !model.showBackground { settings.pngAlpha = true }
         let panel = NSSavePanel()
         func contentType() -> UTType { UTType(filenameExtension: settings.fileExtension(for: format)) ?? .data }
         panel.allowedContentTypes = [contentType()]
@@ -277,7 +278,7 @@ enum Exporter {
                         background: Bool = true) -> BoardPictureView {
         var options = model.renderOptions
         options.highlight = nil
-        options.fillBackground = background
+        options.fillBackground = background && model.showBackground
         return BoardPictureView(
             scene: scene, fitRect: exportRect(scene: scene, dimensions: dimensions), options: options,
             flipX: viewport.flipX, flipY: viewport.flipY, margin: 1,
@@ -332,7 +333,7 @@ enum Exporter {
         o.flipX = viewport.flipX
         o.flipY = viewport.flipY
         let render = model.renderOptions
-        o.background = render.backgroundColor.rgba
+        o.background = model.showBackground ? render.backgroundColor.rgba : nil
         o.substrate = render.substrateColor.rgba
         if !dimensions.isEmpty {
             o.margin = 12

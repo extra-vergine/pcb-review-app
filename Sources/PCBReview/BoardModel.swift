@@ -206,6 +206,11 @@ final class BoardModel: ObservableObject {
         saveColors()
     }
 
+    /// Off for no background at all (transparent), on screen and in the exports.
+    @Published var showBackground = UserDefaults.standard.object(forKey: "showBackground") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showBackground, forKey: "showBackground") }
+    }
+
     /// The canvas and 3D background.
     @Published var backgroundColor: Color = BoardModel.loadBackground() {
         didSet {
@@ -662,6 +667,7 @@ final class BoardModel: ObservableObject {
                               showVias: showVias, showComponents: showComponents, highlight: highlight,
                               substrateColor: substrate)
         o.backgroundColor = backgroundColor
+        o.fillBackground = showBackground
         return o
     }
 

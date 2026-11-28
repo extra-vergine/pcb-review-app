@@ -160,7 +160,7 @@ final class ThreeDController: ObservableObject {
         let units = model.units
         setDimensions(model.dimensions.map { (dimension: $0, label: units.format($0.length)) },
                       color: NSColor(model.color(of: BoardModel.drawingsLayer)))
-        setBackground(NSColor(model.backgroundColor))
+        setBackground(model.showBackground ? NSColor(model.backgroundColor) : .clear)
         setExpanded(model.expandLayers ? model : nil)
     }
 
@@ -336,7 +336,7 @@ final class ThreeDController: ObservableObject {
     func setBackground(_ color: NSColor) {
         mainView?.backgroundColor = color
         background = color
-        reflectionFloor.geometry?.firstMaterial?.diffuse.contents = color
+        reflectionFloor.geometry?.firstMaterial?.diffuse.contents = color.alphaComponent < 0.01 ? NSColor.windowBackgroundColor : color
     }
     private(set) var background = NSColor(red: 0.07, green: 0.08, blue: 0.09, alpha: 1)
 

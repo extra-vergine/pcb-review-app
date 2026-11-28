@@ -73,8 +73,16 @@ enum BoardRenderer {
 
         if anyCopperDrawn {
             if o.showVias { c.fill(scene.viaPaths, with: .color(RenderOptions.via.opacity(dim))) }
-            c.fill(scene.holes, with: .color(o.backgroundColor))
-            if o.showComponents { c.fill(scene.padHoles, with: .color(o.backgroundColor)) }
+            if o.fillBackground {
+                c.fill(scene.holes, with: .color(o.backgroundColor))
+                if o.showComponents { c.fill(scene.padHoles, with: .color(o.backgroundColor)) }
+            } else {
+                // No background: holes are cut out, so whatever is behind shows through.
+                var cut = c
+                cut.blendMode = .clear
+                cut.fill(scene.holes, with: .color(.black))
+                if o.showComponents { cut.fill(scene.padHoles, with: .color(.black)) }
+            }
         }
 
         if let h = o.highlight {

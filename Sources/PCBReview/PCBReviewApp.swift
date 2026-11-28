@@ -300,6 +300,7 @@ struct ThreeDArea: View {
         .onChange(of: model.dimensions) { _ in controller.load(model) }
         .onChange(of: model.units) { _ in controller.load(model) }
         .onChange(of: model.backgroundColor) { _ in controller.load(model) }
+        .onChange(of: model.showBackground) { _ in controller.load(model) }
     }
 }
 
