@@ -226,6 +226,7 @@ struct ThreeDArea: View {
         .onChange(of: model.showVias) { _ in controller.load(model) }
         .onChange(of: model.showOrigin) { _ in controller.load(model) }
         .onChange(of: model.originCorner) { _ in controller.load(model) }
+        .onChange(of: model.showShadow) { _ in controller.load(model) }
     }
 }
 

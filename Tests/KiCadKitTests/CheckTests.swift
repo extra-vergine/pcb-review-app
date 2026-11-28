@@ -239,4 +239,15 @@ final class ModelTests: XCTestCase {
         XCTAssertEqual(url?.lastPathComponent, "R_0603_1608Metric.wrl")
         XCTAssertNil(ModelLibrary.resolve("${KIPRJMOD}/3dmodels/missing.step", boardFolder: dir, roots: []))
     }
+
+    func testModelConversion() {
+        XCTAssertEqual(ModelConversion.key(for: "${KIPRJMOD}/3dmodels/RJ45_Abracon.STEP"), "rj45_abracon")
+        let args = ModelConversion.arguments(board: URL(fileURLWithPath: "/b/x.kicad_pcb"), folder: URL(fileURLWithPath: "/c"))
+        XCTAssertEqual(Array(args.prefix(3)), ["pcb", "export", "vrml"])
+        XCTAssertTrue(args.contains("--models-dir"))
+        // Raw model sizes about 0.4 of the footprint: 0.1 inch units.
+        XCTAssertEqual(ModelConversion.bestUnit(ratios: [0.38, 0.41, 0.4]), 2.54)
+        XCTAssertEqual(ModelConversion.bestUnit(ratios: [1.05, 0.9]), 1)
+        XCTAssertEqual(ModelConversion.bestUnit(ratios: []), 2.54)
+    }
 }

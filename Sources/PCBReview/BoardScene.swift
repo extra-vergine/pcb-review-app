@@ -159,6 +159,16 @@ struct BoardScene {
                 }
             }
         }
+        // Texts: board texts with the board graphics, footprint texts (R1, C1, …) with the components.
+        for t in board.texts where !t.hidden {
+            let outline = TextOutlines.path(for: t)
+            guard !outline.isEmpty else { continue }
+            if t.footprintReference != nil {
+                paths[t.layer, default: LayerPaths()].componentFilled.addPath(outline)
+            } else {
+                paths[t.layer, default: LayerPaths()].filledGraphics.addPath(outline)
+            }
+        }
         for (layer, groups) in graphicGroups {
             paths[layer, default: LayerPaths()].graphics = groups.map { StrokeGroup(width: $0.key, path: $0.value) }
         }

@@ -9,6 +9,9 @@ public struct Board: Sendable {
     public var title: String?
     public var revision: String?
     public var date: String?
+    public var company: String?
+    /// Title block comments by number (1 to 9).
+    public var comments: [Int: String] = [:]
 
     public var layers: [Layer] = []
     public var stackup: [StackupLayer] = []
@@ -205,4 +208,18 @@ public struct BoardText: Sendable {
     public var hidden: Bool
     /// Owning footprint reference for footprint texts and fields.
     public var footprintReference: String?
+    /// Font width in mm (KiCad's size is height then width).
+    public var width: Double?
+    /// -1 left, 0 centre, 1 right.
+    public var justifyH: Int = 0
+    /// -1 top, 0 centre, 1 bottom.
+    public var justifyV: Int = 0
+    /// Mirrored, as on the bottom side.
+    public var mirrored: Bool = false
+    public var bold: Bool = false
+    public var italic: Bool = false
+    /// Font face for TrueType fonts; nil for KiCad's stroke font.
+    public var face: String?
+    /// The outlines KiCad cached for TrueType text, in board coordinates. Empty for stroke text.
+    public var renderCache: [[Point]] = []
 }

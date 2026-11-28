@@ -118,6 +118,10 @@ final class BoardModel: ObservableObject {
     }
     @Published var showOrigin = true
     @Published var showRulers = true
+    /// A shadow under the board in the 3D view.
+    @Published var showShadow = UserDefaults.standard.object(forKey: "3d.shadow") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showShadow, forKey: "3d.shadow") }
+    }
     @Published var units: LengthUnit = .mm
 
     /// The origin corner picked by clicking the origin marker; nil means the board file's own origin.

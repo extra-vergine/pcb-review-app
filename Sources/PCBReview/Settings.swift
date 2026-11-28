@@ -12,6 +12,7 @@ enum AppSettings {
     static let invertZoom = "3d.invertZoom"         // Bool
     static let zoomSpeed = "3d.zoomSpeed"           // Double, 0.25 ... 4
     static let orbitSpeed = "3d.orbitSpeed"         // Double, 0.25 ... 4
+    static let homeView = "3d.homeView"             // HomeView
 
     static func gesture(_ key: String, default d: Gesture3D) -> Gesture3D {
         UserDefaults.standard.string(forKey: key).flatMap(Gesture3D.init(rawValue:)) ?? d
@@ -38,6 +39,27 @@ enum AppearanceChoice: String, CaseIterable, Identifiable {
     }
 }
 
+/// Where the 3D view's house button (and a double-click on the viewfinder) goes.
+enum HomeView: String, CaseIterable, Identifiable {
+    case isometric = "Isometric", front = "Front", back = "Back", left = "Left", right = "Right",
+         top = "Top", bottom = "Bottom", frontAbove = "Front, from above"
+    var id: String { rawValue }
+
+    /// Camera yaw (about the board normal, 0 = from the front) and pitch (up from the board plane), radians.
+    var angles: (yaw: Float, pitch: Float) {
+        switch self {
+        case .isometric: return (.pi / 4, asin(1 / Float(3).squareRoot()))
+        case .front: return (0, 0)
+        case .back: return (.pi, 0)
+        case .left: return (-.pi / 2, 0)
+        case .right: return (.pi / 2, 0)
+        case .top: return (0, .pi / 2)
+        case .bottom: return (0, -.pi / 2)
+        case .frontAbove: return (0, 0.85)
+        }
+    }
+}
+
 /// What an input does in the 3D view.
 enum Gesture3D: String, CaseIterable, Identifiable {
     case orbit = "Rotate", pan = "Pan", zoom = "Zoom", none = "Nothing"
@@ -54,6 +76,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.invertZoom) private var invertZoom = false
     @AppStorage(AppSettings.zoomSpeed) private var zoomSpeed = 1.0
     @AppStorage(AppSettings.orbitSpeed) private var orbitSpeed = 1.0
+    @AppStorage(AppSettings.homeView) private var homeView = HomeView.isometric.rawValue
 
     var body: some View {
         TabView {
@@ -69,6 +92,11 @@ struct SettingsView: View {
             .tabItem { Label("General", systemImage: "gearshape") }
 
             Form {
+                Section("Home view") {
+                    Picker("House button goes to", selection: $homeView) {
+                        ForEach(HomeView.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                    }
+                }
                 Section("Trackpad") {
                     gesturePicker("Two-finger swipe", $trackpadScroll, [.pan, .orbit, .zoom])
                     Text("Pinch always zooms. ⌥ + two-finger swipe does the other of rotate and pan.")
@@ -90,7 +118,7 @@ struct SettingsView: View {
             .padding(20)
             .tabItem { Label("3D Input", systemImage: "rotate.3d") }
         }
-        .frame(width: 460, height: 420)
+        .frame(width: 460, height: 480)
     }
 
     private func gesturePicker(_ title: String, _ value: Binding<String>, _ options: [Gesture3D]) -> some View {

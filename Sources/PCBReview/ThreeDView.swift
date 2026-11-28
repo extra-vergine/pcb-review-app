@@ -55,7 +55,44 @@ final class ThreeDController: ObservableObject {
             n.light?.intensity = CGFloat(intensity)
             n.simdEulerAngles = angles
             scene.rootNode.addChildNode(n)
+            if angles.x == -1.0 { keyLight = n }
         }
+        // The key light casts a soft shadow onto an invisible floor just under the board.
+        if let light = keyLight?.light {
+            light.castsShadow = false
+            light.shadowMode = .deferred
+            light.shadowColor = NSColor(white: 0, alpha: 0.45)
+            light.shadowRadius = 6
+            light.shadowSampleCount = 16
+            light.automaticallyAdjustsShadowProjection = true
+            light.shadowMapSize = CGSize(width: 4096, height: 4096)
+        }
+        let floor = SCNFloor()
+        floor.reflectivity = 0
+        let m = SCNMaterial()
+        m.lightingModel = .shadowOnly
+        m.writesToDepthBuffer = false
+        floor.materials = [m]
+        shadowFloor.geometry = floor
+        shadowFloor.isHidden = true
+        scene.rootNode.addChildNode(shadowFloor)
+    }
+
+    private var keyLight: SCNNode?
+    private let shadowFloor = SCNNode()
+    private var shadowOn = false
+
+    /// Shows or hides the shadow under the board.
+    func setShadow(_ on: Bool) {
+        shadowOn = on
+        keyLight?.light?.castsShadow = on
+        updateShadowFloor()
+    }
+
+    private func updateShadowFloor() {
+        shadowFloor.simdPosition = SIMD3(0, -max(boardSize * 0.03, 0.001), 0)
+        // From below, the floor would sit between the camera and the board.
+        shadowFloor.isHidden = !shadowOn || pitch < 0.02
     }
 
     // MARK: Building
@@ -92,6 +129,7 @@ final class ThreeDController: ObservableObject {
         }
         loadComponents(model)
         componentsNode?.isHidden = !model.showComponents
+        setShadow(model.showShadow)
     }
 
     private func loadComponents(_ model: BoardModel) {
@@ -103,9 +141,13 @@ final class ThreeDController: ObservableObject {
         componentsNode = nil
         modelStatus = "Loading component models…"
         let board = input.board, c = boardCenter, t = thickness
-        let folder = url.deletingLastPathComponent()
+        let cli = BoardModel.kicadCLI
         Task.detached(priority: .userInitiated) {
-            let result = ComponentModels.build(board: board, boardFolder: folder, center: c, thickness: t)
+            let result = ComponentModels.build(board: board, boardURL: url, cli: cli, center: c, thickness: t) { message in
+                Task { @MainActor in
+                    if self.componentsKey == key { self.modelStatus = message }
+                }
+            }
             await MainActor.run {
                 guard self.componentsKey == key else { return }
                 self.scene.rootNode.addChildNode(result.node)
@@ -132,16 +174,22 @@ final class ThreeDController: ObservableObject {
         cameraNode.camera?.usesOrthographicProjection = orthographic
         SCNTransaction.commit()
         orientation.set(q)
+        updateShadowFloor()
         let exact = orthographic && pitch > 1.55
         if exact != rulersExact { rulersExact = exact }
         updateRulers()
     }
 
-    /// The starting view: from the front and above, looking at the board centre.
+    /// The home view chosen in Settings (isometric unless changed), looking at the board centre.
     func home(animated: Bool = true) {
+        let view = HomeView(rawValue: UserDefaults.standard.string(forKey: AppSettings.homeView) ?? "") ?? .isometric
         target = .zero
-        yaw = 0
-        pitch = 0.85
+        let (newYaw, newPitch) = view.angles
+        var delta = newYaw - yaw
+        while delta > .pi { delta -= 2 * .pi }
+        while delta < -.pi { delta += 2 * .pi }
+        yaw += delta
+        pitch = newPitch
         distance = boardSize * 2.1
         applyCamera(animated: animated)
     }
@@ -314,19 +362,60 @@ enum ComponentModels {
         let summary: String
     }
 
-    static func build(board: Board, boardFolder: URL, center c: Point, thickness t: Float) -> Result {
+    static func build(board: Board, boardURL: URL, cli: String?, center c: Point, thickness t: Float,
+                      progress: @Sendable (String) -> Void) -> Result {
         let root = SCNNode()
         root.name = "Components"
+        let folder = boardURL.deletingLastPathComponent()
+        let footprints = board.footprints.filter { fp in
+            let lib = fp.libraryID.lowercased()
+            return !fp.pads.isEmpty && !lib.contains("mountinghole") && !lib.contains("fiducial")
+        }
+
+        // KiCad's .wrl files next to the .step files first; the rest converted by kicad-cli.
+        var direct: [String: URL] = [:]
+        var missing = false
+        for fp in footprints {
+            for m in fp.models where !m.hidden {
+                if let url = ModelLibrary.resolve(m.path, boardFolder: folder) { direct[m.path] = url } else { missing = true }
+            }
+        }
+        var converted: [String: URL] = [:]
+        var conversionLog: String?
+        if missing, let cli {
+            progress("Converting the STEP models with kicad-cli. The first time can take a minute…")
+            (converted, conversionLog) = ModelConversion.convert(cli: cli, board: boardURL)
+        }
+
+        // Converted models: find the file unit by comparing model and footprint sizes.
+        var raw: [URL: [ModelPart]] = [:]
+        var ratios: [Double] = []
+        for fp in footprints {
+            guard let body = ComponentBody(fp) else { continue }
+            for m in fp.models where !m.hidden && direct[m.path] == nil {
+                guard let url = converted[ModelConversion.key(for: m.path)] else { continue }
+                if raw[url] == nil { raw[url] = (try? VRMLReader.read(contentsOf: url, unit: 1)) ?? [] }
+                if let parts = raw[url], let e = extent(parts), m.scale.x > 0 {
+                    ratios.append(e / max(body.width, body.height) * m.scale.x)
+                }
+            }
+        }
+        let unit = ModelConversion.bestUnit(ratios: ratios)
+
         var cache: [URL: [ModelPart]] = [:]
         var found = 0, boxes = 0
-        for fp in board.footprints where !fp.pads.isEmpty {
-            let lib = fp.libraryID.lowercased()
-            if lib.contains("mountinghole") || lib.contains("fiducial") { continue }
+        for fp in footprints {
             var placed = false
             for m in fp.models where !m.hidden {
-                guard let url = ModelLibrary.resolve(m.path, boardFolder: boardFolder) else { continue }
-                if cache[url] == nil { cache[url] = (try? VRMLReader.read(contentsOf: url)) ?? [] }
-                guard let parts = cache[url], !parts.isEmpty else { continue }
+                var parts: [ModelPart] = []
+                if let url = direct[m.path] {
+                    if cache[url] == nil { cache[url] = (try? VRMLReader.read(contentsOf: url)) ?? [] }
+                    parts = cache[url] ?? []
+                } else if let url = converted[ModelConversion.key(for: m.path)] {
+                    if cache[url] == nil { cache[url] = scaled(raw[url] ?? [], by: unit) }
+                    parts = cache[url] ?? []
+                }
+                guard !parts.isEmpty else { continue }
                 root.addChildNode(node(parts, footprint: fp, model: m, center: c, thickness: t))
                 placed = true
             }
@@ -335,9 +424,39 @@ enum ComponentModels {
                 boxes += 1
             }
         }
-        let summary = boxes == 0 ? "\(found) component models" :
-            "\(found) component models found, \(boxes) shown as boxes (KiCad's .wrl model files were not found for them)"
+        var summary = "\(found) component models"
+        if boxes > 0 {
+            summary += ", \(boxes) shown as boxes"
+            if missing && cli == nil {
+                summary += ". Install KiCad in /Applications so its STEP models can be converted"
+            } else if let conversionLog, !conversionLog.isEmpty {
+                summary += ". kicad-cli said: " + String(conversionLog.split(separator: "\n").last ?? "")
+            } else {
+                summary += " (no 3D model in the file, or the model file was not found)"
+            }
+        }
         return Result(node: root, summary: summary)
+    }
+
+    /// The larger of a model's X and Y sizes, in file units.
+    static func extent(_ parts: [ModelPart]) -> Double? {
+        var minX = Float.infinity, maxX = -Float.infinity, minY = Float.infinity, maxY = -Float.infinity
+        for p in parts {
+            for k in stride(from: 0, to: p.positions.count - 2, by: 3) {
+                minX = min(minX, p.positions[k]); maxX = max(maxX, p.positions[k])
+                minY = min(minY, p.positions[k + 1]); maxY = max(maxY, p.positions[k + 1])
+            }
+        }
+        guard minX < maxX || minY < maxY else { return nil }
+        return Double(max(maxX - minX, maxY - minY))
+    }
+
+    static func scaled(_ parts: [ModelPart], by unit: Float) -> [ModelPart] {
+        parts.map { p in
+            var q = p
+            q.positions = p.positions.map { $0 * unit }
+            return q
+        }
     }
 
     /// The model's triangles in scene space, one geometry per colour.

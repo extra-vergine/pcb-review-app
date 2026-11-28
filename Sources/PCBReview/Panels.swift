@@ -7,14 +7,14 @@ struct LayerPanel: View {
 
     var body: some View {
         VStack(spacing: 8) {
-            Picker("", selection: $model.viewMode) {
-                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            if let board = model.input?.board {
+                BoardInfoHeader(board: board, fileName: model.url?.lastPathComponent)
+                    .padding([.horizontal, .top], 8)
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .help("Switch between the 2D (⌃2) and 3D (⌃3) views")
-            .padding([.horizontal, .top], 8)
-            list
+            ScrollView {
+                VStack(spacing: 8) { groups }
+                    .padding(.horizontal, 8)
+            }
             VStack(spacing: 6) {
                 HStack(spacing: 6) {
                     Button { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } } label: {
@@ -35,58 +35,86 @@ struct LayerPanel: View {
             }
             NavigatorView()
                 .frame(height: 140)
-                .padding([.horizontal, .bottom], 8)
+                .padding(.horizontal, 8)
+            Picker("", selection: $model.viewMode) {
+                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.large)
+            .help("Switch between the 2D (⌃2) and 3D (⌃3) views")
+            .padding([.horizontal, .bottom], 8)
         }
     }
 
-    private var list: some View {
-        List {
-            Section("Board") {
-                Picker("Origin", selection: $model.originCorner) {
-                    Text("File origin").tag(OriginCorner?.none)
-                    ForEach(OriginCorner.allCases, id: \.self) { c in
-                        Text(c.rawValue.capitalized).tag(OriginCorner?.some(c))
-                    }
-                }
-                Picker("Board", selection: $model.materialChoice) {
-                    Text("From file (\(model.fileMaterialName))").tag(BoardModel.fileChoice)
-                    Divider()
-                    ForEach(BoardAppearance.materialOptions) { Text($0.label).tag($0.id) }
-                }
-                Picker("Mask", selection: $model.maskChoice) {
-                    Text("From file (\(model.fileMaskName))").tag(BoardModel.fileChoice)
-                    Divider()
-                    ForEach(BoardAppearance.maskOptions) { Text($0.label).tag($0.id) }
-                }
-                Picker("Silkscreen", selection: $model.silkChoice) {
-                    Text("Automatic (to suit the mask)").tag(BoardModel.autoChoice)
-                    Text("From file (\(model.fileSilkName))").tag(BoardModel.fileChoice)
-                    Divider()
-                    ForEach(BoardAppearance.silkOptions) { Text($0.label).tag($0.id) }
+    @ViewBuilder private var groups: some View {
+        PanelGroup("Board") {
+            Picker("Origin", selection: $model.originCorner) {
+                Text("File origin").tag(OriginCorner?.none)
+                ForEach(OriginCorner.allCases, id: \.self) { c in
+                    Text(c.rawValue.capitalized).tag(OriginCorner?.some(c))
                 }
             }
-            Section("Copper (⌥-click a check mark for all)") {
-                ForEach(model.layerList.filter(\.isCopper)) { row($0) }
+            Picker("Board", selection: $model.materialChoice) {
+                Text("From file (\(model.fileMaterialName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.materialOptions) { Text($0.label).tag($0.id) }
             }
-            Section("Other layers") {
-                ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
+            Picker("Mask", selection: $model.maskChoice) {
+                Text("From file (\(model.fileMaskName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.maskOptions) { Text($0.label).tag($0.id) }
             }
-            Section("Show") {
-                Toggle("Origin", isOn: $model.showOrigin)
-                Toggle("Rulers (⌘R)", isOn: $model.showRulers)
-                Toggle("Zone fills", isOn: $model.showZoneFills)
-                Toggle("Vias", isOn: $model.showVias)
-                Toggle("Components", isOn: $model.showComponents)
-                    .help("Pads, footprint graphics and a body box with the reference for each component")
-            }
-            Section("Dimensions (User.Drawings)") {
-                Toggle("Board, horizontal", isOn: $model.showBoardWidth)
-                Toggle("Board, vertical", isOn: $model.showBoardHeight)
-                Toggle("Mounting holes, horizontal", isOn: $model.showHoleSpacingX)
-                Toggle("Mounting holes, vertical", isOn: $model.showHoleSpacingY)
+            Picker("Silkscreen", selection: $model.silkChoice) {
+                Text("Automatic (to suit the mask)").tag(BoardModel.autoChoice)
+                Text("From file (\(model.fileSilkName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.silkOptions) { Text($0.label).tag($0.id) }
             }
         }
-        .listStyle(.sidebar)
+        PanelGroup("Copper", hint: "⌥-click: all") {
+            ForEach(model.layerList.filter(\.isCopper)) { row($0) }
+        }
+        PanelGroup("Other layers", hint: "⌥-click: all") {
+            ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
+        }
+        PanelGroup("Elements", hint: "⌥-click: all") {
+            groupToggle("Origin", \.showOrigin, in: Self.elements)
+            groupToggle("Rulers (⌘R)", \.showRulers, in: Self.elements)
+            groupToggle("Zone fills", \.showZoneFills, in: Self.elements)
+            groupToggle("Vias", \.showVias, in: Self.elements)
+            groupToggle("Components", \.showComponents, in: Self.elements)
+                .help("Pads, footprint graphics and texts, and the 3D models")
+            groupToggle("Shadow (3D)", \.showShadow, in: Self.elements)
+                .help("A soft shadow under the board in the 3D view")
+        }
+        PanelGroup("Dimensions", hint: "⌥-click: all") {
+            groupToggle("Board, horizontal", \.showBoardWidth, in: Self.dimensions)
+            groupToggle("Board, vertical", \.showBoardHeight, in: Self.dimensions)
+            groupToggle("Mounting holes, horizontal", \.showHoleSpacingX, in: Self.dimensions)
+            groupToggle("Mounting holes, vertical", \.showHoleSpacingY, in: Self.dimensions)
+        }
+    }
+
+    static let elements: [ReferenceWritableKeyPath<BoardModel, Bool>] =
+        [\.showOrigin, \.showRulers, \.showZoneFills, \.showVias, \.showComponents, \.showShadow]
+    static let dimensions: [ReferenceWritableKeyPath<BoardModel, Bool>] =
+        [\.showBoardWidth, \.showBoardHeight, \.showHoleSpacingX, \.showHoleSpacingY]
+
+    /// A checkbox that switches the whole group when ⌥ is held.
+    private func groupToggle(_ title: String, _ key: ReferenceWritableKeyPath<BoardModel, Bool>,
+                             in group: [ReferenceWritableKeyPath<BoardModel, Bool>]) -> some View {
+        let m = model
+        return Toggle(title, isOn: Binding(
+            get: { m[keyPath: key] },
+            set: { value in
+                if NSEvent.modifierFlags.contains(.option) {
+                    for k in group where m[keyPath: k] != value { m[keyPath: k] = value }
+                } else {
+                    m[keyPath: key] = value
+                }
+            }))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A layer row: a green check mark activates or deactivates the layer;
@@ -126,6 +154,66 @@ struct LayerPanel: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+        }
+    }
+}
+
+/// A titled group on a subtle rounded background, to separate the panel's areas.
+struct PanelGroup<Content: View>: View {
+    let title: String
+    let hint: String?
+    @ViewBuilder let content: Content
+
+    init(_ title: String, hint: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.hint = hint
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
+            content
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.16)))
+    }
+}
+
+/// The most important facts about the board, at the top of the left panel.
+struct BoardInfoHeader: View {
+    let board: Board
+    let fileName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(board.title ?? fileName ?? "Board")
+                .font(.headline).lineLimit(2)
+                .help(fileName ?? "")
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+                info("Revision", board.revision ?? "–")
+                info("Date", board.date ?? "–")
+                info("Format", "KiCad \(board.generatorVersion ?? "?") (\(board.version))")
+                info("Size", board.outlineBounds.map { String(format: "%.2f × %.2f mm", $0.width, $0.height) } ?? "–")
+                info("Thickness", board.thickness.map { String(format: "%.2f mm", $0) } ?? "–")
+                info("Copper layers", "\(board.copperLayers.count)")
+            }
+            .font(.caption)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.16)))
+    }
+
+    private func info(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
         }
     }
 }

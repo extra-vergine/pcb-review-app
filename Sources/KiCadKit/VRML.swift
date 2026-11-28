@@ -17,9 +17,9 @@ public enum VRMLReader {
 
     public struct ParseError: Error, CustomStringConvertible { public var description: String }
 
-    public static func read(contentsOf url: URL) throws -> [ModelPart] {
+    public static func read(contentsOf url: URL, unit: Float = kicadUnitMM) throws -> [ModelPart] {
         let data = try Data(contentsOf: url)
-        return try parse(String(decoding: data, as: UTF8.self))
+        return try parse(String(decoding: data, as: UTF8.self), unit: unit)
     }
 
     public static func parse(_ text: String, unit: Float = kicadUnitMM) throws -> [ModelPart] {
@@ -265,5 +265,84 @@ public enum ModelLibrary {
             }
         }
         return nil
+    }
+}
+
+/// Turns a board's STEP models into VRML with `kicad-cli pcb export vrml`, which writes
+/// each model it uses into a folder. KiCad reads STEP files itself, so this finds
+/// every model KiCad's own 3D viewer finds, including ones in the project folder.
+public enum ModelConversion {
+    /// Where the converted models for this version of the board file go.
+    public static func cacheFolder(for board: URL) -> URL {
+        let fm = FileManager.default
+        let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory
+        let attrs = try? fm.attributesOfItem(atPath: board.path)
+        let stamp = Int((attrs?[.modificationDate] as? Date)?.timeIntervalSince1970 ?? 0)
+        let size = (attrs?[.size] as? NSNumber)?.intValue ?? 0
+        let name = board.deletingPathExtension().lastPathComponent
+        return caches.appendingPathComponent("PCBReview/models/\(name)-\(stamp)-\(size)", isDirectory: true)
+    }
+
+    public static func arguments(board: URL, folder: URL) -> [String] {
+        ["pcb", "export", "vrml", "--units", "mm",
+         "--models-dir", folder.appendingPathComponent("models").path,
+         "--output", folder.appendingPathComponent("board.wrl").path, board.path]
+    }
+
+    /// Runs the conversion once per board version. Returns the `.wrl` files by
+    /// lower-cased file name without extension, and kicad-cli's output if it failed.
+    public static func convert(cli: String, board: URL) -> (models: [String: URL], log: String?) {
+        let folder = cacheFolder(for: board)
+        let fm = FileManager.default
+        var log: String?
+        if !fm.fileExists(atPath: folder.appendingPathComponent("board.wrl").path) {
+            try? fm.createDirectory(at: folder.appendingPathComponent("models"), withIntermediateDirectories: true)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: cli)
+            process.arguments = arguments(board: board, folder: folder)
+            process.currentDirectoryURL = board.deletingLastPathComponent()
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+            do {
+                try process.run()
+                let out = pipe.fileHandleForReading.readDataToEndOfFile()
+                process.waitUntilExit()
+                if process.terminationStatus != 0 {
+                    log = String(decoding: out, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
+                    try? fm.removeItem(at: folder.appendingPathComponent("board.wrl"))
+                }
+            } catch {
+                log = error.localizedDescription
+            }
+        }
+        return (index(folder), log)
+    }
+
+    /// Every `.wrl` under `folder` except the board itself.
+    public static func index(_ folder: URL) -> [String: URL] {
+        var out: [String: URL] = [:]
+        guard let e = FileManager.default.enumerator(at: folder, includingPropertiesForKeys: nil) else { return out }
+        for case let url as URL in e where url.pathExtension.lowercased() == "wrl" && url.lastPathComponent != "board.wrl" {
+            out[url.deletingPathExtension().lastPathComponent.lowercased()] = url
+        }
+        return out
+    }
+
+    /// The key a model path has in `index`: its file name without extension, lower-cased.
+    public static func key(for modelPath: String) -> String {
+        let name = modelPath.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? modelPath
+        return (name as NSString).deletingPathExtension.lowercased()
+    }
+
+    /// The unit (mm per file unit) that makes models match their footprints best,
+    /// from the ratios of raw model size to footprint body size.
+    public static func bestUnit(ratios: [Double]) -> Float {
+        let r = ratios.filter { $0 > 0 && $0.isFinite }.sorted()
+        guard !r.isEmpty else { return VRMLReader.kicadUnitMM }
+        let median = r[r.count / 2]
+        let units: [Double] = [2.54, 1, 25.4, 0.1, 1000]
+        let best = units.min { abs(log($0 * median)) < abs(log($1 * median)) } ?? 2.54
+        return Float(best)
     }
 }
