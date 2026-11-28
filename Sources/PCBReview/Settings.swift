@@ -13,6 +13,13 @@ enum AppSettings {
     static let zoomSpeed = "3d.zoomSpeed"           // Double, 0.25 ... 4
     static let orbitSpeed = "3d.orbitSpeed"         // Double, 0.25 ... 4
     static let homeView = "3d.homeView"             // HomeView
+    static let orthographicDefault = "3d.orthographicDefault" // Bool, false: perspective
+    static let shadowDefault = "3d.shadowDefault"   // Bool, true
+    static let reflectionDefault = "3d.reflectionDefault" // Bool, false
+
+    static func flag(_ key: String, default d: Bool) -> Bool {
+        UserDefaults.standard.object(forKey: key) as? Bool ?? d
+    }
 
     static func gesture(_ key: String, default d: Gesture3D) -> Gesture3D {
         UserDefaults.standard.string(forKey: key).flatMap(Gesture3D.init(rawValue:)) ?? d
@@ -77,6 +84,9 @@ struct SettingsView: View {
     @AppStorage(AppSettings.zoomSpeed) private var zoomSpeed = 1.0
     @AppStorage(AppSettings.orbitSpeed) private var orbitSpeed = 1.0
     @AppStorage(AppSettings.homeView) private var homeView = HomeView.isometric.rawValue
+    @AppStorage(AppSettings.orthographicDefault) private var orthographicDefault = false
+    @AppStorage(AppSettings.shadowDefault) private var shadowDefault = true
+    @AppStorage(AppSettings.reflectionDefault) private var reflectionDefault = false
 
     var body: some View {
         TabView {
@@ -92,11 +102,6 @@ struct SettingsView: View {
             .tabItem { Label("General", systemImage: "gearshape") }
 
             Form {
-                Section("Home view") {
-                    Picker("House button goes to", selection: $homeView) {
-                        ForEach(HomeView.allCases) { Text($0.rawValue).tag($0.rawValue) }
-                    }
-                }
                 Section("Trackpad") {
                     gesturePicker("Two-finger swipe", $trackpadScroll, [.pan, .orbit, .zoom])
                     Text("Pinch always zooms. ⌥ + two-finger swipe does the other of rotate and pan.")
@@ -117,8 +122,26 @@ struct SettingsView: View {
             }
             .padding(20)
             .tabItem { Label("3D Input", systemImage: "rotate.3d") }
+
+            Form {
+                Section("3D View") {
+                    Picker("House button", selection: $homeView) {
+                        ForEach(HomeView.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                    }
+                    Picker("Default projection", selection: $orthographicDefault) {
+                        Text("Perspective").tag(false)
+                        Text("Orthographic").tag(true)
+                    }
+                    Toggle("Shadow on by default", isOn: $shadowDefault)
+                    Toggle("Reflection on by default", isOn: $reflectionDefault)
+                    Text("The defaults apply when the app starts. The eye button and the Show / hide checkboxes change them for the current session.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(20)
+            .tabItem { Label("3D View", systemImage: "cube") }
         }
-        .frame(width: 460, height: 480)
+        .frame(width: 460, height: 440)
     }
 
     private func gesturePicker(_ title: String, _ value: Binding<String>, _ options: [Gesture3D]) -> some View {

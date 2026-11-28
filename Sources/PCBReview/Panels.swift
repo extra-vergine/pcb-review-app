@@ -89,6 +89,8 @@ struct LayerPanel: View {
             groupToggle("Origin", \.showOrigin, in: Self.showHide)
             groupToggle("Shadow (3D)", \.showShadow, in: Self.showHide)
                 .help("A soft shadow under the board in the 3D view")
+            groupToggle("Reflection (3D)", \.showReflection, in: Self.showHide)
+                .help("A reflection of the board on the ground in the 3D view")
             HStack(spacing: 8) {
                 ColorSwatch(color: model.backgroundColor) { model.backgroundColor = $0 }
                     .contextMenu { Button("Reset Background") { model.resetBackground() } }
@@ -109,7 +111,7 @@ struct LayerPanel: View {
     }
 
     static let elements: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showComponents, \.showVias, \.showZoneFills]
-    static let showHide: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showRulers, \.showOrigin, \.showShadow]
+    static let showHide: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showRulers, \.showOrigin, \.showShadow, \.showReflection]
     static let dimensions: [ReferenceWritableKeyPath<BoardModel, Bool>] =
         [\.showBoardWidth, \.showBoardHeight, \.showHoleSpacingX, \.showHoleSpacingY]
 

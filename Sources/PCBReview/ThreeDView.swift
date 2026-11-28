@@ -9,7 +9,7 @@ import KiCadKit
 @MainActor
 final class ThreeDController: ObservableObject {
     /// True for an orthographic camera, false for perspective.
-    @Published var orthographic = false
+    @Published var orthographic = AppSettings.flag(AppSettings.orthographicDefault, default: false)
     /// A note about the component models, e.g. how many were found.
     @Published private(set) var modelStatus: String?
 
@@ -76,6 +76,27 @@ final class ThreeDController: ObservableObject {
         shadowFloor.geometry = floor
         shadowFloor.isHidden = true
         scene.rootNode.addChildNode(shadowFloor)
+
+        // A floor in the background colour that mirrors the board, fading with distance.
+        let mirror = SCNFloor()
+        mirror.reflectivity = 0.3
+        mirror.reflectionFalloffStart = 0
+        mirror.reflectionResolutionScaleFactor = 1
+        let mm = SCNMaterial()
+        mm.lightingModel = .constant
+        mm.diffuse.contents = background
+        mirror.materials = [mm]
+        reflectionFloor.geometry = mirror
+        reflectionFloor.isHidden = true
+        scene.rootNode.addChildNode(reflectionFloor)
+    }
+
+    private let reflectionFloor = SCNNode()
+    private var reflectionOn = false
+
+    func setReflection(_ on: Bool) {
+        reflectionOn = on
+        updateShadowFloor()
     }
 
     private var keyLight: SCNNode?
@@ -90,9 +111,13 @@ final class ThreeDController: ObservableObject {
     }
 
     private func updateShadowFloor() {
-        shadowFloor.simdPosition = SIMD3(0, -max(boardSize * 0.03, 0.001), 0)
+        let y = -max(boardSize * 0.03, 0.001)
+        shadowFloor.simdPosition = SIMD3(0, y + 0.00002, 0)
+        reflectionFloor.simdPosition = SIMD3(0, y, 0)
+        (reflectionFloor.geometry as? SCNFloor)?.reflectionFalloffEnd = CGFloat(boardSize * 0.6)
         // From below, the floor would sit between the camera and the board.
         shadowFloor.isHidden = !shadowOn || pitch < 0.02
+        reflectionFloor.isHidden = !reflectionOn || pitch < 0.02
     }
 
     // MARK: Building
@@ -130,6 +155,7 @@ final class ThreeDController: ObservableObject {
         loadComponents(model)
         componentsNode?.isHidden = !model.showComponents
         setShadow(model.showShadow)
+        setReflection(model.showReflection)
         updateOrigin(origin)
         let units = model.units
         setDimensions(model.dimensions.map { (dimension: $0, label: units.format($0.length)) },
@@ -268,6 +294,7 @@ final class ThreeDController: ObservableObject {
     func setBackground(_ color: NSColor) {
         mainView?.backgroundColor = color
         background = color
+        reflectionFloor.geometry?.firstMaterial?.diffuse.contents = color
     }
     private(set) var background = NSColor(red: 0.07, green: 0.08, blue: 0.09, alpha: 1)
 
