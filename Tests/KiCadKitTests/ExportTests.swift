@@ -65,6 +65,27 @@ final class ExportTests: XCTestCase {
         XCTAssertEqual((json["images"] as? [Any])?.count, 2)
     }
 
+    func testExportOptions() throws {
+        var o = options
+        o.decimals = 2
+        let d = try XCTUnwrap(board.overallDimension(.horizontal))
+        o.dimensions = [(d, "100.00 mm")]
+        let svg = SVGExporter.svg(board: board, options: o)
+        XCTAssertTrue(svg.contains("width=\"106.00mm\""))
+        XCTAssertTrue(svg.contains("<g id=\"dimensions\""))
+        XCTAssertTrue(svg.contains(">100.00 mm</text>"))
+        o.textToPath = { _, h in ("M0 0L1 \(h)Z", 10) }
+        let curves = SVGExporter.svg(board: board, options: o)
+        XCTAssertFalse(curves.contains("<text"))
+        XCTAssertTrue(curves.contains("translate(-5.00 -0.60)"))
+
+        o.hpgl2 = false
+        let plt = HPGLExporter.hpgl(board: board, options: o)
+        XCTAssertTrue(plt.hasPrefix("IN;"))
+        XCTAssertFalse(plt.contains("PW"))
+        XCTAssertTrue(plt.contains("LB100.00 mm\u{3}"))
+    }
+
     func testSVG() {
         let svg = SVGExporter.svg(board: board, options: options)
         XCTAssertTrue(svg.hasPrefix("<?xml"))
@@ -76,7 +97,8 @@ final class ExportTests: XCTestCase {
 
     func testHPGL() {
         let plt = HPGLExporter.hpgl(board: board, options: options)
-        XCTAssertTrue(plt.hasPrefix("IN;"))
+        XCTAssertTrue(plt.hasPrefix("BP;IN;"))
+        XCTAssertTrue(plt.contains("PW"))
         XCTAssertTrue(plt.contains("CO \"F.Cu\";"))
         XCTAssertTrue(plt.contains("CI"))
         XCTAssertTrue(plt.hasSuffix("PU;SP0;\n"))
