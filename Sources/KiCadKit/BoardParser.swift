@@ -31,10 +31,15 @@ public enum BoardParser {
             board.title = tb.text("title")
             board.revision = tb.text("rev")
             board.date = tb.text("date")
+            board.company = tb.text("company")
+            for c in tb.children("comment") {
+                if let n = c.atom(at: 1).flatMap(Int.init), let v = c.atom(at: 2) { board.comments[n] = v }
+            }
         }
         board.thickness = root.child("general")?.value("thickness")
         board.layers = parseLayers(root.child("layers"))
         board.stackup = parseStackup(root.child("setup")?.child("stackup"))
+        board.copperFinish = root.child("setup")?.child("stackup")?.text("copper_finish")
         board.auxAxisOrigin = root.child("setup")?.point("aux_axis_origin")
         board.gridOrigin = root.child("setup")?.point("grid_origin")
 
@@ -42,7 +47,7 @@ public enum BoardParser {
             switch item.head ?? "" {
             case "footprint", "module":
                 board.footprints.append(parseFootprint(item, board: board))
-                board.texts.append(contentsOf: footprintTexts(item))
+                board.texts.append(contentsOf: footprintTexts(item, variables: textVariables(board)))
             case "segment":
                 if let t = parseTrack(item, arc: false) { board.tracks.append(t) }
             case "arc":
@@ -54,7 +59,10 @@ public enum BoardParser {
             case "gr_line", "gr_arc", "gr_circle", "gr_rect", "gr_poly", "gr_curve":
                 if let g = parseGraphic(item, transform: { $0 }) { board.graphics.append(g) }
             case "gr_text":
-                if let t = parseText(item, transform: { $0 }, baseRotation: 0, reference: nil) { board.texts.append(t) }
+                if var t = parseText(item, transform: { $0 }, baseRotation: 0, reference: nil) {
+                    t.text = expandVariables(t.text, textVariables(board))
+                    board.texts.append(t)
+                }
             default:
                 break
             }
@@ -81,7 +89,7 @@ public enum BoardParser {
         return node.children("layer").compactMap { l in
             guard let name = l.atom(at: 1) else { return nil }
             return StackupLayer(name: name, type: l.text("type") ?? "", thickness: l.value("thickness"),
-                                material: l.text("material"), epsilonR: l.value("epsilon_r"))
+                                material: l.text("material"), epsilonR: l.value("epsilon_r"), color: l.text("color"))
         }
     }
 
@@ -140,7 +148,18 @@ public enum BoardParser {
             }
         }
 
-        return Footprint(
+        let models: [FootprintModel] = node.children("model").compactMap { m in
+            guard let path = m.atom(at: 1) else { return nil }
+            func xyz(_ name: String, _ d: Double) -> (x: Double, y: Double, z: Double) {
+                let n = m.child(name)?.child("xyz")
+                return (n?.double(at: 1) ?? d, n?.double(at: 2) ?? d, n?.double(at: 3) ?? d)
+            }
+            let hidden = m.items.contains { $0.atom == "hide" } || m.child("hide")?.atom(at: 1) == "yes"
+                || m.child("show")?.atom(at: 1) == "no"
+            return FootprintModel(path: path, offset: xyz("offset", 0), scale: xyz("scale", 1), rotation: xyz("rotate", 0), hidden: hidden)
+        }
+
+        var footprint = Footprint(
             libraryID: node.atom(at: 1) ?? "",
             reference: reference,
             value: props["Value"] ?? "",
@@ -155,22 +174,61 @@ public enum BoardParser {
             zones: zones,
             uuid: node.text("uuid") ?? node.text("tstamp")
         )
+        footprint.models = models
+        return footprint
     }
 
     /// Texts (fields and `fp_text`) of a footprint, in board coordinates.
-    static func footprintTexts(_ node: SExpr) -> [BoardText] {
+    /// The title block's text variables, e.g. `TITLE` and `COMMENT1`.
+    static func textVariables(_ board: Board) -> [String: String] {
+        var v: [String: String] = [:]
+        v["TITLE"] = board.title
+        v["REVISION"] = board.revision
+        v["ISSUE_DATE"] = board.date
+        v["COMPANY"] = board.company
+        for (n, c) in board.comments { v["COMMENT\(n)"] = c }
+        return v
+    }
+
+    /// Replaces `${NAME}` with its value; unknown names are left as they are.
+    public static func expandVariables(_ text: String, _ variables: [String: String]) -> String {
+        guard text.contains("${") else { return text }
+        var out = ""
+        var rest = Substring(text)
+        while let start = rest.range(of: "${") {
+            out += rest[..<start.lowerBound]
+            guard let end = rest[start.upperBound...].firstIndex(of: "}") else { out += rest[start.lowerBound...]; return out }
+            let name = String(rest[start.upperBound..<end])
+            out += variables[name] ?? variables[name.uppercased()] ?? "${\(name)}"
+            rest = rest[rest.index(after: end)...]
+        }
+        return out + rest
+    }
+
+    static func footprintTexts(_ node: SExpr, variables: [String: String] = [:]) -> [BoardText] {
         let at = node.child("at")
         let origin = at?.point ?? Point(0, 0)
         let rotation = at?.double(at: 3) ?? 0
         let toBoard: (Point) -> Point = { $0.rotated(byDegrees: rotation) + origin }
         var ref: String?
         for p in node.children("property") where p.atom(at: 1) == "Reference" { ref = p.atom(at: 2) }
+        var vars = variables
+        for p in node.children("property") {
+            if let k = p.atom(at: 1), let v = p.atom(at: 2) { vars[k.uppercased()] = v }
+        }
+        if let name = node.atom(at: 1) { vars["FOOTPRINT_NAME"] = String(name.split(separator: ":").last ?? "") }
         var out: [BoardText] = []
         for p in node.children("property") {
-            if let t = parseText(p, transform: toBoard, baseRotation: 0, reference: ref, textIndex: 2) { out.append(t) }
+            if var t = parseText(p, transform: toBoard, baseRotation: 0, reference: ref, textIndex: 2) {
+                t.text = expandVariables(t.text, vars)
+                out.append(t)
+            }
         }
         for t in node.children("fp_text") {
-            if let x = parseText(t, transform: toBoard, baseRotation: 0, reference: ref, textIndex: 2) { out.append(x) }
+            if var x = parseText(t, transform: toBoard, baseRotation: 0, reference: ref, textIndex: 2) {
+                x.text = expandVariables(x.text, vars)
+                out.append(x)
+            }
         }
         return out
     }
@@ -298,9 +356,28 @@ public enum BoardParser {
         guard let at = node.child("at"), let local = at.point, let layer = node.text("layer") else { return nil }
         let text = node.atom(at: textIndex) ?? ""
         let font = node.child("effects")?.child("font")
-        let hidden = node.flag("hide") || (node.child("effects")?.flag("hide") ?? false)
-        return BoardText(text: text, position: transform(local), rotation: (at.double(at: 3) ?? 0) + baseRotation,
-                         layer: layer, height: font?.child("size")?.double(at: 1),
-                         thickness: font?.value("thickness"), hidden: hidden, footprintReference: reference)
+        let effects = node.child("effects")
+        let hidden = node.flag("hide") || node.text("hide") == "yes" || (effects?.flag("hide") ?? false) || effects?.text("hide") == "yes"
+        var t = BoardText(text: text, position: transform(local), rotation: (at.double(at: 3) ?? 0) + baseRotation,
+                          layer: layer, height: font?.child("size")?.double(at: 1),
+                          thickness: font?.value("thickness"), hidden: hidden, footprintReference: reference)
+        t.width = font?.child("size")?.double(at: 2)
+        t.face = font?.text("face")
+        t.bold = (font?.flag("bold") ?? false) || font?.text("bold") == "yes"
+        t.italic = (font?.flag("italic") ?? false) || font?.text("italic") == "yes"
+        let justify = effects?.child("justify")?.arguments ?? []
+        t.justifyH = justify.contains("left") ? -1 : justify.contains("right") ? 1 : 0
+        t.justifyV = justify.contains("top") ? -1 : justify.contains("bottom") ? 1 : 0
+        t.mirrored = justify.contains("mirror")
+        for poly in node.child("render_cache")?.children("polygon") ?? [] {
+            for pts in poly.children("pts") {
+                let points = pts.children("xy").compactMap { xy -> Point? in
+                    guard let x = xy.double(at: 1), let y = xy.double(at: 2) else { return nil }
+                    return Point(x, y)
+                }
+                if points.count >= 3 { t.renderCache.append(points) }
+            }
+        }
+        return t
     }
 }

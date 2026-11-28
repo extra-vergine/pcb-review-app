@@ -30,6 +30,35 @@ struct LayerPaths {
     var componentFilled = Path()
 }
 
+/// A component drawn as a body: the footprint's fabrication outline (or courtyard,
+/// or pads) as a rectangle aligned with the footprint, plus its reference.
+struct ComponentBody {
+    let reference: String
+    let isBottom: Bool
+    /// Four corners in board coordinates.
+    let corners: [Point]
+    let center: Point
+    /// Body size along the footprint's own axes, mm.
+    let width: Double
+    let height: Double
+
+    init?(_ fp: Footprint) {
+        let side = fp.isBottom ? "B" : "F"
+        let toLocal = { (p: Point) in (p - fp.position).rotated(byDegrees: -fp.rotation) }
+        var pts = fp.graphics.filter { $0.layer == "\(side).Fab" }.flatMap(\.polyline)
+        if pts.isEmpty { pts = fp.graphics.filter { $0.layer == "\(side).CrtYd" }.flatMap(\.polyline) }
+        if pts.isEmpty { pts = fp.pads.flatMap(\.outline) }
+        guard let r = Rect.enclosing(pts.map(toLocal)), r.width > 0.05, r.height > 0.05 else { return nil }
+        reference = fp.reference
+        isBottom = fp.isBottom
+        corners = [Point(r.minX, r.minY), Point(r.maxX, r.minY), Point(r.maxX, r.maxY), Point(r.minX, r.maxY)]
+            .map { $0.rotated(byDegrees: fp.rotation) + fp.position }
+        center = Point((r.minX + r.maxX) / 2, (r.minY + r.maxY) / 2).rotated(byDegrees: fp.rotation) + fp.position
+        width = r.width
+        height = r.height
+    }
+}
+
 /// Precomputed drawing data for a board. Building paths once keeps panning and zooming smooth.
 struct BoardScene {
     let layers: [LayerInfo]
@@ -43,6 +72,10 @@ struct BoardScene {
     let bounds: Rect
     /// The board shape (outline polygon, or the bounds if the outline does not close).
     let substrate: Path
+    /// Component bodies, for the Components option.
+    let bodies: [ComponentBody]
+    let frontBodies: Path
+    let backBodies: Path
 
     init(board: Board) {
         var paths: [String: LayerPaths] = [:]
@@ -126,6 +159,16 @@ struct BoardScene {
                 }
             }
         }
+        // Texts: board texts with the board graphics, footprint texts (R1, C1, …) with the components.
+        for t in board.texts where !t.hidden {
+            let outline = TextOutlines.path(for: t)
+            guard !outline.isEmpty else { continue }
+            if t.footprintReference != nil {
+                paths[t.layer, default: LayerPaths()].componentFilled.addPath(outline)
+            } else {
+                paths[t.layer, default: LayerPaths()].filledGraphics.addPath(outline)
+            }
+        }
         for (layer, groups) in graphicGroups {
             paths[layer, default: LayerPaths()].graphics = groups.map { StrokeGroup(width: $0.key, path: $0.value) }
         }
@@ -171,6 +214,15 @@ struct BoardScene {
             substrate.addRect(CGRect(x: b.minX, y: b.minY, width: b.width, height: b.height))
         }
         self.substrate = substrate
+
+        let bodies = board.footprints.compactMap(ComponentBody.init)
+        var front = Path(), back = Path()
+        for b in bodies {
+            if b.isBottom { polygon(b.corners, into: &back) } else { polygon(b.corners, into: &front) }
+        }
+        self.bodies = bodies
+        self.frontBodies = front
+        self.backBodies = back
     }
 
     func color(of layer: String) -> Color {

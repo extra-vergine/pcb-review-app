@@ -100,3 +100,29 @@ public extension Board {
         }
     }
 }
+
+/// The strokes of a dimension: extension lines, the dimension line, two arrow heads and where the label goes.
+public struct DimensionGeometry: Sendable {
+    public var lines: [(Point, Point)] = []
+    public var arrows: [[Point]] = []
+    /// Centre of the dimension line; the label sits just above it.
+    public var labelAt: Point
+
+    public init(_ d: LinearDimension, arrow: Double) {
+        let horizontal = d.axis == .horizontal
+        func at(_ p: Point) -> Point { horizontal ? Point(p.x, d.lineAt) : Point(d.lineAt, p.y) }
+        let a = at(d.from), b = at(d.to)
+        lines = [(d.from, a), (d.to, b), (a, b)]
+        let len = a.distance(to: b)
+        if len > 0 {
+            let ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+            let w = arrow * 0.35
+            func head(_ tip: Point, _ dir: Double) -> [Point] {
+                let base = Point(tip.x + ux * arrow * dir, tip.y + uy * arrow * dir)
+                return [tip, Point(base.x - uy * w, base.y + ux * w), Point(base.x + uy * w, base.y - ux * w)]
+            }
+            arrows = [head(a, 1), head(b, -1)]
+        }
+        labelAt = Point((a.x + b.x) / 2, (a.y + b.y) / 2)
+    }
+}

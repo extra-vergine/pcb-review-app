@@ -11,6 +11,8 @@ public struct Mesh3D: Sendable {
 
         public var vertexCount: Int { positions.count / 3 }
 
+        public init(material: Int) { self.material = material }
+
         mutating func addVertex(_ p: (Float, Float, Float), normal n: (Float, Float, Float), uv: (Float, Float)) -> UInt32 {
             positions += [p.0, p.1, p.2]
             normals += [n.0, n.1, n.2]
@@ -26,6 +28,14 @@ public struct Mesh3D: Sendable {
         public var image: Int?
         public var roughness: Double = 0.8
         public var metallic: Double = 0
+
+        public init(name: String, baseColor: RGBA, image: Int? = nil, roughness: Double = 0.8, metallic: Double = 0) {
+            self.name = name
+            self.baseColor = baseColor
+            self.image = image
+            self.roughness = roughness
+            self.metallic = metallic
+        }
     }
 
     public var name: String

@@ -10,8 +10,11 @@ struct RenderOptions {
     /// Footprints: pads, pad holes and footprint graphics.
     var showComponents = true
     var highlight: NetHighlight?
+    /// The board's fill: a darkened preview of the mask colour.
+    var substrateColor = RenderOptions.substrate
     /// Fill the whole canvas with the background colour. Off for printing.
     var fillBackground = true
+    var backgroundColor = RenderOptions.background
 
     static let background = Color(red: 0.07, green: 0.08, blue: 0.09)
     static let substrate = Color(red: 0.11, green: 0.14, blue: 0.13)
@@ -22,12 +25,12 @@ enum BoardRenderer {
     /// Draws the board into `ctx` using `t` to map board millimetres to points.
     static func draw(_ scene: BoardScene, in ctx: GraphicsContext, size: CGSize, transform t: ViewTransform, options o: RenderOptions) {
         if o.fillBackground {
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(RenderOptions.background))
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(o.backgroundColor))
         }
         var c = ctx
         c.concatenate(t.affine)
 
-        c.fill(scene.substrate, with: .color(RenderOptions.substrate))
+        c.fill(scene.substrate, with: .color(o.substrateColor))
 
         let dim: Double = o.highlight?.net == nil ? 1 : 0.45
         var anyCopperDrawn = false
@@ -55,10 +58,31 @@ enum BoardRenderer {
             }
         }
 
+        // Component bodies: a translucent box per footprint on each side that is shown.
+        let showFront = o.showComponents && ["F.Cu", "F.SilkS", "F.Fab", "F.CrtYd"].contains { o.layers.contains($0) }
+        let showBack = o.showComponents && ["B.Cu", "B.SilkS", "B.Fab", "B.CrtYd"].contains { o.layers.contains($0) }
+        let hairline = 1.2 / Double(t.scale)
+        if showBack {
+            c.fill(scene.backBodies, with: .color(Self.backBody.opacity(0.22)))
+            c.stroke(scene.backBodies, with: .color(Self.backBody.opacity(0.8)), lineWidth: hairline)
+        }
+        if showFront {
+            c.fill(scene.frontBodies, with: .color(Self.frontBody.opacity(0.26)))
+            c.stroke(scene.frontBodies, with: .color(Self.frontBody.opacity(0.85)), lineWidth: hairline)
+        }
+
         if anyCopperDrawn {
             if o.showVias { c.fill(scene.viaPaths, with: .color(RenderOptions.via.opacity(dim))) }
-            c.fill(scene.holes, with: .color(RenderOptions.background))
-            if o.showComponents { c.fill(scene.padHoles, with: .color(RenderOptions.background)) }
+            if o.fillBackground {
+                c.fill(scene.holes, with: .color(o.backgroundColor))
+                if o.showComponents { c.fill(scene.padHoles, with: .color(o.backgroundColor)) }
+            } else {
+                // No background: holes are cut out, so whatever is behind shows through.
+                var cut = c
+                cut.blendMode = .clear
+                cut.fill(scene.holes, with: .color(.black))
+                if o.showComponents { cut.fill(scene.padHoles, with: .color(.black)) }
+            }
         }
 
         if let h = o.highlight {
@@ -74,6 +98,28 @@ enum BoardRenderer {
             c.stroke(h.selectedOutline, with: .color(.cyan),
                      style: StrokeStyle(lineWidth: 2 / t.scale, lineCap: .round, lineJoin: .round))
         }
+
+        // References, in screen space so they stay upright and readable.
+        for b in scene.bodies where b.isBottom ? showBack : showFront {
+            drawReference(b, in: ctx, transform: t)
+        }
+    }
+
+    static let frontBody = Color(red: 0.86, green: 0.84, blue: 0.78)
+    static let backBody = Color(red: 0.55, green: 0.68, blue: 0.9)
+
+    /// The reference designator centred on the body, sized to fit it; skipped when too small to read.
+    private static func drawReference(_ b: ComponentBody, in ctx: GraphicsContext, transform t: ViewTransform) {
+        let pts = b.corners.map(t.screen)
+        let xs = pts.map(\.x), ys = pts.map(\.y)
+        let w = (xs.max() ?? 0) - (xs.min() ?? 0), h = (ys.max() ?? 0) - (ys.min() ?? 0)
+        let chars = CGFloat(max(b.reference.count, 1))
+        let size = min(h * 0.55, w * 0.9 / (chars * 0.62), 28)
+        guard size >= 7 else { return }
+        let text = Text(b.reference)
+            .font(.system(size: size, weight: .semibold, design: .rounded))
+            .foregroundColor(b.isBottom ? backBody : frontBody)
+        ctx.draw(text, at: t.screen(b.center), anchor: .center)
     }
 
     /// Origin marker and dimensions, drawn in screen space so text and arrows keep their size.

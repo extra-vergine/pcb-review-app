@@ -36,16 +36,18 @@ struct BoardCanvasView: View {
             }
             .onAppear {
                 viewport.size = geo.size
-                fit()
+                if viewport.autoFit { fit() }
                 installKeyMonitor()
             }
             .onDisappear(perform: removeKeyMonitor)
             .onChange(of: geo.size) { newSize in
-                let first = viewport.size == .zero
                 viewport.size = newSize
-                if first { fit() }
+                if viewport.autoFit { fit() }
             }
             .onChange(of: model.fitRequest) { _ in fit() }
+            .onChange(of: model.focusRequest) { r in
+                if let r { viewport.fit(r.rect, auto: false) }
+            }
         }
         .coordinateSpace(name: Self.space)
         .clipped()
@@ -130,7 +132,9 @@ struct BoardCanvasView: View {
             if let scene {
                 BoardRenderer.draw(scene, in: ctx, size: size, transform: t, options: options)
             } else {
-                ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(RenderOptions.background))
+                if options.fillBackground {
+                    ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(options.backgroundColor))
+                }
             }
         }
     }
@@ -144,7 +148,10 @@ struct BoardCanvasView: View {
         let guides = model.guides + (model.pendingGuide.map { [$0] } ?? [])
         let guideOrigin = model.userOrigin
         let inset = model.showRulers ? Self.rulerSize : 0
+        let findings = model.sidePanel == .findings ? model.orderedFindings : []
+        let selectedFinding = model.selectedFinding
         return Canvas { ctx, size in
+            FindingRenderer.draw(findings, selected: selectedFinding, in: ctx, transform: t)
             GuideRenderer.draw(guides, in: ctx, size: size, transform: t, origin: guideOrigin, units: units, inset: inset)
             BoardRenderer.drawOverlay(in: ctx, transform: t, origin: origin, dimensions: dims,
                                       dimensionColor: dimColor, units: units)

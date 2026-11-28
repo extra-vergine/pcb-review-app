@@ -16,6 +16,16 @@ public struct ExportOptions: Sendable {
     public var viaColor: RGBA = RGBA(0.72, 0.72, 0.72)
     /// Margin around the board outline, mm.
     public var margin: Double = 3
+    /// SVG: digits after the decimal point for coordinates (in mm).
+    public var decimals: Int = 4
+    /// Dimensions to draw, each with its label (e.g. "100.00 mm").
+    public var dimensions: [(dimension: LinearDimension, label: String)] = []
+    public var dimensionColor: RGBA = RGBA(0.9, 0.85, 0.4)
+    /// SVG: turns a label into outline path data (mm, baseline at y = 0, starting at x = 0) and its width.
+    /// When set, labels are written as curves instead of `<text>`.
+    public var textToPath: (@Sendable (_ text: String, _ height: Double) -> (path: String, width: Double))?
+    /// HP-GL: true for HP-GL/2 (BP header and pen widths), false for classic HP-GL.
+    public var hpgl2: Bool = true
 
     public init(layers: [String], colors: [String: RGBA]) {
         self.layers = layers
@@ -41,7 +51,8 @@ public enum SVGExporter {
     /// An SVG drawing of the board in millimetres (the document is sized in mm).
     public static func svg(board: Board, options o: ExportOptions) -> String {
         let r = board.exportBounds(margin: o.margin)
-        let fmt = { (v: Double) in String(format: "%.4f", v) }
+        let fmtString = "%.\(max(0, min(8, o.decimals)))f"
+        let fmt = { (v: Double) in String(format: fmtString, v) }
         // Flips mirror around the centre of the exported area.
         let sx = o.flipX ? -1.0 : 1.0, sy = o.flipY ? -1.0 : 1.0
         let cx = r.minX + r.width / 2, cy = r.minY + r.height / 2
@@ -103,8 +114,38 @@ public enum SVGExporter {
             for h in board.holes(includePads: o.showComponents) { out += "<circle cx=\"\(fmt(h.center.x))\" cy=\"\(fmt(h.center.y))\" r=\"\(fmt(h.diameter / 2))\"/>\n" }
             out += "</g>\n"
         }
-        out += "</g>\n</svg>\n"
+        out += "</g>\n"
+        out += dimensionsSVG(o, flip: { p in Point(o.flipX ? 2 * cx - p.x : p.x, o.flipY ? 2 * cy - p.y : p.y) }, fmt: fmt)
+        out += "</svg>\n"
         return out
+    }
+
+    /// Dimension lines, arrows and labels, drawn outside the flip group so labels stay readable.
+    static func dimensionsSVG(_ o: ExportOptions, flip: (Point) -> Point, fmt: (Double) -> String) -> String {
+        guard !o.dimensions.isEmpty else { return "" }
+        let c = o.dimensionColor.hex
+        var out = "<g id=\"dimensions\" stroke=\"\(c)\" fill=\"\(c)\" stroke-width=\"0.15\">\n"
+        let textHeight = 1.6, arrow = 1.2
+        for (d, label) in o.dimensions {
+            let geo = DimensionGeometry(d, arrow: arrow)
+            for (a, b) in geo.lines {
+                let p = flip(a), q = flip(b)
+                out += "<line x1=\"\(fmt(p.x))\" y1=\"\(fmt(p.y))\" x2=\"\(fmt(q.x))\" y2=\"\(fmt(q.y))\"/>\n"
+            }
+            for tri in geo.arrows {
+                let pts = tri.map(flip).map { "\(fmt($0.x)),\(fmt($0.y))" }.joined(separator: " ")
+                out += "<polygon points=\"\(pts)\" stroke=\"none\"/>\n"
+            }
+            let mid = flip(geo.labelAt)
+            let rotate = d.axis == .vertical ? " rotate(-90)" : ""
+            if let toPath = o.textToPath {
+                let t = toPath(label, textHeight)
+                out += "<path transform=\"translate(\(fmt(mid.x)) \(fmt(mid.y)))\(rotate) translate(\(fmt(-t.width / 2)) \(fmt(-0.6)))\" d=\"\(t.path)\" stroke=\"none\"/>\n"
+            } else {
+                out += "<text transform=\"translate(\(fmt(mid.x)) \(fmt(mid.y)))\(rotate)\" y=\"-0.6\" text-anchor=\"middle\" font-family=\"Helvetica, Arial, sans-serif\" font-size=\"\(fmt(textHeight))\" stroke=\"none\">\(xmlEscape(label))</text>\n"
+            }
+        }
+        return out + "</g>\n"
     }
 
     static func xmlEscape(_ s: String) -> String {
@@ -130,7 +171,8 @@ public enum HPGLExporter {
             if o.flipY { y = r.height - y }
             return (Int((x * unitsPerMM).rounded()), Int((y * unitsPerMM).rounded()))
         }
-        var out = "IN;\nSC;\nPU0,0;\n"
+        var out = o.hpgl2 ? "BP;IN;\nSC;\nPU0,0;\n" : "IN;\nSC;\nPU0,0;\n"
+        func pw(_ w: Double, _ pen: Int) { if o.hpgl2 { out += String(format: "PW%.3f,%d;\n", w, pen) } }
         func poly(_ pts: [Point], closed: Bool) {
             guard let f = pts.first else { return }
             let (x0, y0) = pu(f)
@@ -149,31 +191,47 @@ public enum HPGLExporter {
             pen = pen % 8 + 1
             out += "CO \"\(layer)\";\nSP\(pen);\n"
             if o.showZoneFills {
-                out += "PW0.1,\(pen);\n"
+                pw(0.1, pen)
                 g.zoneFills.forEach { poly($0, closed: true) }
             }
             var width = -1.0
             for t in g.tracks {
-                if t.width != width { width = t.width; out += String(format: "PW%.3f,%d;\n", width, pen) }
+                if t.width != width { width = t.width; pw(width, pen) }
                 poly(t.points, closed: false)
             }
-            out += "PW0.1,\(pen);\n"
+            pw(0.1, pen)
             g.pads.forEach { poly($0, closed: true) }
             g.filledShapes.forEach { poly($0, closed: true) }
             width = -1
             for l in g.lines {
-                if l.width != width { width = l.width; out += String(format: "PW%.3f,%d;\n", width, pen) }
+                if l.width != width { width = l.width; pw(width, pen) }
                 poly(l.points, closed: false)
             }
         }
         if anyCopper {
             pen = pen % 8 + 1
-            out += "CO \"holes\";\nSP\(pen);\nPW0.1,\(pen);\n"
+            out += "CO \"holes\";\nSP\(pen);\n"
+            pw(0.1, pen)
             let vias: [(center: Point, diameter: Double)] = o.showVias ? board.vias.map { (center: $0.position, diameter: $0.size) } : []
             for h in vias + board.holes(includePads: o.showComponents) {
                 let (x, y) = pu(h.center)
                 out += String(format: "PU%d,%d;CI%d;\n", x, y, Int((h.diameter / 2 * unitsPerMM).rounded()))
             }
+        }
+        if !o.dimensions.isEmpty {
+            pen = pen % 8 + 1
+            out += "CO \"dimensions\";\nSP\(pen);\n"
+            pw(0.15, pen)
+            for (d, label) in o.dimensions {
+                let geo = DimensionGeometry(d, arrow: 1.2)
+                for (a, b) in geo.lines { poly([a, b], closed: false) }
+                for tri in geo.arrows { poly(tri, closed: true) }
+                let (x, y) = pu(geo.labelAt)
+                // Character size in cm; DI turns vertical labels; LO4 centres the label on the point.
+                out += d.axis == .vertical ? "DI0,1;" : "DI1,0;"
+                out += "SI0.12,0.16;LO4;PU\(x),\(y);LB\(label)\u{3};\n"
+            }
+            out += "DI1,0;\n"
         }
         out += "PU;SP0;\n"
         return out

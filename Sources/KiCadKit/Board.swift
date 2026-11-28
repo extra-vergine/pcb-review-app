@@ -9,9 +9,14 @@ public struct Board: Sendable {
     public var title: String?
     public var revision: String?
     public var date: String?
+    public var company: String?
+    /// Title block comments by number (1 to 9).
+    public var comments: [Int: String] = [:]
 
     public var layers: [Layer] = []
     public var stackup: [StackupLayer] = []
+    /// `(copper_finish ..)` from the stackup, e.g. `ENIG` or `HAL SnPb`.
+    public var copperFinish: String?
     /// Board thickness from `(general (thickness ..))`, mm.
     public var thickness: Double?
     /// The drill/place origin from `(setup (aux_axis_origin x y))`.
@@ -66,8 +71,26 @@ public struct Footprint: Sendable {
     /// Rule areas and zones that belong to the footprint.
     public var zones: [Zone]
     public var uuid: String?
+    /// 3D models attached to the footprint.
+    public var models: [FootprintModel] = []
 
     public var isBottom: Bool { layer == "B.Cu" }
+}
+
+/// A `(model ...)` entry of a footprint: the 3D model file and how it is placed.
+public struct FootprintModel: Equatable, Sendable {
+    /// The path as written, e.g. `${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step`.
+    public var path: String
+    /// Offset in mm (x right, y up, z up from the board).
+    public var offset: (x: Double, y: Double, z: Double)
+    public var scale: (x: Double, y: Double, z: Double)
+    /// Rotation in degrees about x, y and z.
+    public var rotation: (x: Double, y: Double, z: Double)
+    public var hidden: Bool
+
+    public static func == (a: Self, b: Self) -> Bool {
+        a.path == b.path && a.offset == b.offset && a.scale == b.scale && a.rotation == b.rotation && a.hidden == b.hidden
+    }
 }
 
 public struct Pad: Sendable {
@@ -185,4 +208,18 @@ public struct BoardText: Sendable {
     public var hidden: Bool
     /// Owning footprint reference for footprint texts and fields.
     public var footprintReference: String?
+    /// Font width in mm (KiCad's size is height then width).
+    public var width: Double?
+    /// -1 left, 0 centre, 1 right.
+    public var justifyH: Int = 0
+    /// -1 top, 0 centre, 1 bottom.
+    public var justifyV: Int = 0
+    /// Mirrored, as on the bottom side.
+    public var mirrored: Bool = false
+    public var bold: Bool = false
+    public var italic: Bool = false
+    /// Font face for TrueType fonts; nil for KiCad's stroke font.
+    public var face: String?
+    /// The outlines KiCad cached for TrueType text, in board coordinates. Empty for stroke text.
+    public var renderCache: [[Point]] = []
 }

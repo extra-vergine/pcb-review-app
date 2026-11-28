@@ -83,10 +83,22 @@ final class BoardParserTests: XCTestCase {
     }
 
     func testFootprintTexts() {
-        let refs = board.texts.filter { $0.footprintReference == "R24" && $0.text == "R24" }
+        let refs = board.texts.filter { $0.footprintReference == "R24" && $0.text == "R24" && $0.layer == "F.SilkS" }
         XCTAssertEqual(refs.count, 1)
         XCTAssertEqual(refs.first?.height, 0.8)
-        XCTAssertEqual(refs.first?.layer, "F.SilkS")
+        // The fab layer's ${REFERENCE} is filled in too.
+        XCTAssertTrue(board.texts.contains { $0.footprintReference == "R24" && $0.text == "R24" && $0.layer != "F.SilkS" })
+        XCTAssertFalse(board.texts.contains { $0.text.contains("${REFERENCE}") })
+    }
+
+    func testBoardTexts() throws {
+        XCTAssertEqual(board.comments[1], "Author: René")
+        let roomy = try XCTUnwrap(board.texts.first { $0.text == "Roomy" })
+        XCTAssertEqual(roomy.justifyH, -1)
+        XCTAssertEqual(roomy.face, "Space Age")
+        XCTAssertFalse(roomy.renderCache.isEmpty)
+        XCTAssertEqual(roomy.renderCache[0][0].x, 108.631639, accuracy: 1e-6)
+        XCTAssertEqual(BoardParser.expandVariables("${TITLE} rev ${REVISION} ${X}", ["TITLE": "T", "REVISION": "2"]), "T rev 2 ${X}")
     }
 }
 

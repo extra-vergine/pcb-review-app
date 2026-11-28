@@ -1,0 +1,39 @@
+{
+  "id": "jlcpcb",
+  "name": "JLCPCB",
+  "scope": "Rigid FR-4, multilayer (4 layers), 1 oz outer and 0.5 oz inner copper, standard options",
+  "checked": "2026-11-27",
+  "sources": [
+    { "id": "cap", "title": "JLCPCB PCB Capabilities", "url": "https://jlcpcb.com/capabilities/pcb-capabilities" }
+  ],
+  "notes": [
+    "The page does not label standard and advanced tiers. 0.1 mm drills and 0.1/0.2 mm vias cost extra and need a board of 1 mm or less with ENIG or OSP, so they are not used here.",
+    "Values marked unverified were not read word for word from the page. Their findings are warnings, not errors."
+  ],
+  "rules": [
+    { "id": "min_track_width", "value": 0.09, "source": "cap", "quote": "Multilayer: 0.09 / 0.09 mm (3.5 / 3.5 mil); 3 mil is acceptable in BGA fan-outs", "verified": true },
+    { "id": "min_clearance", "value": 0.09, "source": "cap", "quote": "Multilayer: 0.09 / 0.09 mm (3.5 / 3.5 mil)", "verified": true },
+    { "id": "min_pad_to_track", "value": 0.1, "source": "cap", "quote": "Pad to track (1 oz): 0.1 mm (0.09 mm locally at BGA pads)", "verified": true },
+    { "id": "min_smd_pad_to_pad", "value": 0.15, "source": "cap", "quote": "SMD pad to pad (different nets): 0.15 mm", "verified": true },
+    { "id": "min_via_drill", "value": 0.15, "recommended": 0.2, "source": "cap", "quote": "Via hole/diameter 0.15/0.25 mm for multilayer; preferred minimum via hole 0.2 mm", "verified": true },
+    { "id": "min_via_diameter", "value": 0.25, "source": "cap", "quote": "Via hole/diameter 0.15/0.25 mm for multilayer", "verified": true },
+    { "id": "min_via_annular_ring", "value": 0.05, "recommended": 0.075, "source": "cap", "quote": "Via diameter 0.1 mm (0.15 mm preferred) larger than via hole size", "verified": true },
+    { "id": "min_pth_drill", "value": 0.15, "source": "cap", "quote": "PTH, multilayer: 0.15 – 6.3 mm; holes of 6.3 mm and larger are routed", "verified": true },
+    { "id": "max_pth_drill", "value": 6.3, "source": "cap", "quote": "PTH, multilayer: 0.15 – 6.3 mm; holes of 6.3 mm and larger are routed", "verified": true },
+    { "id": "min_npth_drill", "value": 0.5, "source": "cap", "quote": "NPTH minimum 0.50 mm", "verified": true },
+    { "id": "min_pth_annular_ring", "value": 0.15, "recommended": 0.2, "source": "cap", "quote": "PTH annular ring, multilayer 1 oz: recommended 0.20 mm or above; absolute minimum 0.15 mm", "verified": true },
+    { "id": "min_via_hole_to_hole", "value": 0.2, "source": "cap", "quote": "Via hole to hole: 0.2 mm", "verified": true },
+    { "id": "min_pad_hole_to_hole", "value": 0.45, "source": "cap", "quote": "Pad hole to hole: 0.45 mm", "verified": true },
+    { "id": "min_via_hole_to_track", "value": 0.2, "source": "cap", "quote": "Via hole to track: 0.2 mm; inner via hole to copper: 0.2 mm", "verified": true },
+    { "id": "min_pth_hole_to_track", "value": 0.28, "recommended": 0.35, "source": "cap", "quote": "PTH to track: 0.28 mm (0.35 mm recommended)", "verified": true },
+    { "id": "min_npth_hole_to_track", "value": 0.2, "source": "cap", "quote": "NPTH to track: 0.2 mm", "verified": true },
+    { "id": "min_copper_to_edge", "value": 0.2, "source": "cap", "quote": "Copper to routed board edge: 0.2 mm or more (V-cut: 0.4 mm)", "verified": false },
+    { "id": "min_silk_line_width", "value": 0.15, "source": "cap", "quote": "Silkscreen minimum line width 0.15 mm", "verified": false },
+    { "id": "min_silk_text_height", "value": 1.0, "source": "cap", "quote": "Silkscreen minimum text height 40 mil (1.0 mm), width to height 1:6", "verified": false },
+    { "id": "min_silk_to_pad", "value": 0.15, "source": "cap", "quote": "Silkscreen to pad: 0.15 mm", "verified": false },
+    { "id": "min_plated_slot", "value": 0.35, "source": "cap", "quote": "Plated slot, multilayer: 0.35 mm (2-layer 0.5 mm); length at least 2 x width", "verified": true },
+    { "id": "min_npth_slot", "value": 1.0, "source": "cap", "quote": "NPTH slot: 1.0 mm", "verified": true },
+    { "id": "min_board_thickness", "value": 0.4, "source": "cap", "quote": "Board thickness 0.4 – 4.5 mm; FR-4 standard 0.4/0.6/0.8/1.0/1.2/1.6/2.0 mm", "verified": true },
+    { "id": "max_board_thickness", "value": 4.5, "source": "cap", "quote": "Board thickness 0.4 – 4.5 mm", "verified": true }
+  ]
+}

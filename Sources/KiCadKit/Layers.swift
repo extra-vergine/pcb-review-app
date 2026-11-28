@@ -21,6 +21,8 @@ public struct StackupLayer: Equatable, Sendable {
     public let thickness: Double?
     public let material: String?
     public let epsilonR: Double?
+    /// Colour name as KiCad writes it, e.g. `Green`, `Black` or `#1A2B3CFF` (mask and silkscreen layers).
+    public var color: String? = nil
 }
 
 public extension Board {

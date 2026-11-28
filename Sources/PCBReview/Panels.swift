@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import KiCadKit
 
@@ -5,58 +6,153 @@ struct LayerPanel: View {
     @EnvironmentObject var model: BoardModel
 
     var body: some View {
-        List {
-            Section("Copper") {
-                ForEach(model.layerList.filter(\.isCopper)) { row($0) }
+        VStack(spacing: 8) {
+            if let board = model.input?.board {
+                BoardInfoHeader(board: board, fileName: model.url?.lastPathComponent)
+                    .padding([.horizontal, .top], 8)
             }
-            Section("Other layers") {
-                ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
+            ScrollView {
+                VStack(spacing: 8) { groups }
+                    .padding(.horizontal, 8)
             }
-            Section("Show") {
-                Toggle("Origin", isOn: $model.showOrigin)
-                Toggle("Rulers (⌘R)", isOn: $model.showRulers)
-                Toggle("Zone fills", isOn: $model.showZoneFills)
-                Toggle("Vias", isOn: $model.showVias)
-                Toggle("Components", isOn: $model.showComponents)
-            }
-            Section("Dimensions (User.Drawings)") {
-                Toggle("Board, horizontal", isOn: $model.showBoardWidth)
-                Toggle("Board, vertical", isOn: $model.showBoardHeight)
-                Toggle("Mounting holes, horizontal", isOn: $model.showHoleSpacingX)
-                Toggle("Mounting holes, vertical", isOn: $model.showHoleSpacingY)
-            }
-            Section {
-                HStack {
-                    Button("Copper only") { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } }
-                    Button("Defaults") { model.showOnly(\.visibleByDefault) }
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Button { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } } label: {
+                        Text("Copper only").frame(maxWidth: .infinity)
+                    }
+                    Button { model.showOnly(\.visibleByDefault) } label: {
+                        Text("Defaults").frame(maxWidth: .infinity)
+                    }
                 }
-                .controlSize(.small)
+                FlipButtons()
+                FrontBackButtons()
+            }
+            .controlSize(.large)
+            .padding(.horizontal, 8)
+            if model.viewMode == .threeD {
+                ViewCubeView()
+                    .frame(height: 150)
+                    .padding(.horizontal, 8)
+            }
+            NavigatorView()
+                .frame(height: 140)
+                .padding(.horizontal, 8)
+            Picker("", selection: $model.viewMode) {
+                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .controlSize(.large)
+            .help("Switch between the 2D (⌃2) and 3D (⌃3) views")
+            .padding([.horizontal, .bottom], 8)
+        }
+    }
+
+    @ViewBuilder private var groups: some View {
+        PanelGroup("Board") {
+            Picker("Origin", selection: $model.originCorner) {
+                Text("File origin (\(model.fileOriginPlace))").tag(OriginCorner?.none)
+                ForEach(OriginCorner.allCases, id: \.self) { c in
+                    Text(c.rawValue.capitalized).tag(OriginCorner?.some(c))
+                }
+            }
+            Picker("Board", selection: $model.materialChoice) {
+                Text("From file (\(model.fileMaterialName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.materialOptions) { Text($0.label).tag($0.id) }
+            }
+            Picker("Mask", selection: $model.maskChoice) {
+                Text("From file (\(model.fileMaskName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.maskOptions) { Text($0.label).tag($0.id) }
+            }
+            Picker("Silkscreen", selection: $model.silkChoice) {
+                Text("Automatic (to suit the mask)").tag(BoardModel.autoChoice)
+                Text("From file (\(model.fileSilkName))").tag(BoardModel.fileChoice)
+                Divider()
+                ForEach(BoardAppearance.silkOptions) { Text($0.label).tag($0.id) }
             }
         }
-        .listStyle(.sidebar)
+        PanelGroup("Copper layers", hint: "⌥-click: all") {
+            ForEach(model.layerList.filter(\.isCopper)) { row($0) }
+        }
+        PanelGroup("Other layers", hint: "⌥-click: all") {
+            ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
+        }
+        PanelGroup("Other elements", hint: "⌥-click: all") {
+            groupToggle("Components", \.showComponents, in: Self.elements)
+                .help("Pads, footprint graphics and texts, and the 3D models")
+            groupToggle("Vias", \.showVias, in: Self.elements)
+            groupToggle("Zone fills", \.showZoneFills, in: Self.elements)
+        }
+        PanelGroup("Show / hide", hint: "⌥-click: all") {
+            groupToggle("Rulers (⌘R)", \.showRulers, in: Self.showHide)
+            groupToggle("Origin (⌥⌘O)", \.showOrigin, in: Self.showHide)
+            groupToggle("Shadow (3D)", \.showShadow, in: Self.showHide)
+                .help("A soft shadow under the board in the 3D view")
+            groupToggle("Reflection (3D)", \.showReflection, in: Self.showHide)
+                .help("A reflection of the board on the ground in the 3D view")
+            groupToggle("Expand layers (3D)", \.expandLayers, in: Self.showHide)
+                .help("Pulls the copper layers apart in 3D, with vias as barrels, to see how they run from layer to layer")
+            HStack(spacing: 8) {
+                Toggle("Background", isOn: $model.showBackground)
+                    .help("Off for no background (transparent), on screen and in the exports")
+                Spacer()
+                ColorSwatch(color: model.backgroundColor) { model.backgroundColor = $0 }
+                    .contextMenu { Button("Reset Background") { model.resetBackground() } }
+                    .opacity(model.showBackground ? 1 : 0.4)
+            }
+            .help("The background colour of the 2D and 3D views")
+        }
+        PanelGroup("Dimensions", hint: "⌥-click: all") {
+            groupToggle("Board, horizontal", \.showBoardWidth, in: Self.dimensions)
+            groupToggle("Board, vertical", \.showBoardHeight, in: Self.dimensions)
+            groupToggle("Mounting holes, horizontal", \.showHoleSpacingX, in: Self.dimensions)
+            groupToggle("Mounting holes, vertical", \.showHoleSpacingY, in: Self.dimensions)
+        }
+    }
+
+    static let elements: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showComponents, \.showVias, \.showZoneFills]
+    static let showHide: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showRulers, \.showOrigin, \.showShadow, \.showReflection, \.expandLayers]
+    static let dimensions: [ReferenceWritableKeyPath<BoardModel, Bool>] =
+        [\.showBoardWidth, \.showBoardHeight, \.showHoleSpacingX, \.showHoleSpacingY]
+
+    /// A checkbox that switches the whole group when ⌥ is held.
+    private func groupToggle(_ title: String, _ key: ReferenceWritableKeyPath<BoardModel, Bool>,
+                             in group: [ReferenceWritableKeyPath<BoardModel, Bool>]) -> some View {
+        let m = model
+        return Toggle(title, isOn: Binding(
+            get: { m[keyPath: key] },
+            set: { value in
+                if NSEvent.modifierFlags.contains(.option) {
+                    for k in group where m[keyPath: k] != value { m[keyPath: k] = value }
+                } else {
+                    m[keyPath: key] = value
+                }
+            }))
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// A layer row: a green check mark activates or deactivates the layer;
     /// clicking the colour swatch opens the colour picker for it.
     private func row(_ layer: LayerInfo) -> some View {
         let active = model.isActive(layer.name)
-        return HStack(spacing: 7) {
+        return HStack(spacing: 10) {
             Button {
-                model.toggle(layer.name)
+                if NSEvent.modifierFlags.contains(.option) {
+                    model.setGroup(copper: layer.isCopper, active: !active)
+                } else {
+                    model.toggle(layer.name)
+                }
             } label: {
                 Image(systemName: active ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(active ? Color.green : Color.secondary)
                     .font(.system(size: 14))
             }
             .buttonStyle(.plain)
-            .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
+            .help((active ? "Deactivate \(layer.name)" : "Activate \(layer.name)") + ". ⌥-click for all \(layer.isCopper ? "copper" : "other") layers.")
 
-            ColorPicker("", selection: Binding(
-                get: { model.color(of: layer.name) },
-                set: { model.setColor($0, for: layer.name) }
-            ), supportsOpacity: false)
-            .labelsHidden()
-            .frame(width: 26, height: 16)
+            ColorSwatch(color: model.color(of: layer.name)) { model.setColor($0, for: layer.name) }
             .help("Choose a colour for \(layer.name)")
             .contextMenu {
                 Button("Reset Colour") { model.resetColor(for: layer.name) }
@@ -78,16 +174,80 @@ struct LayerPanel: View {
     }
 }
 
+/// A titled group on a subtle rounded background, to separate the panel's areas.
+struct PanelGroup<Content: View>: View {
+    let title: String
+    let hint: String?
+    @ViewBuilder let content: Content
+
+    init(_ title: String, hint: String? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.hint = hint
+        self.content = content()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.secondary)
+                Spacer()
+                if let hint { Text(hint).font(.caption2).foregroundStyle(.tertiary) }
+            }
+            content
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.16)))
+    }
+}
+
+/// The most important facts about the board, at the top of the left panel.
+struct BoardInfoHeader: View {
+    let board: Board
+    let fileName: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(board.title ?? fileName ?? "Board")
+                .font(.headline).lineLimit(2)
+                .help(fileName ?? "")
+            Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 2) {
+                info("Revision", board.revision ?? "–")
+                info("Date", board.date ?? "–")
+                info("Format", "KiCad \(board.generatorVersion ?? "?") (\(board.version))")
+                info("Size", board.outlineBounds.map { String(format: "%.2f × %.2f mm", $0.width, $0.height) } ?? "–")
+                info("Thickness", board.thickness.map { String(format: "%.2f mm", $0) } ?? "–")
+                info("Copper layers", "\(board.copperLayers.count)")
+            }
+            .font(.caption)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 8).fill(Color.gray.opacity(0.16)))
+    }
+
+    private func info(_ label: String, _ value: String) -> some View {
+        GridRow {
+            Text(label).foregroundStyle(.secondary)
+            Text(value).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+        }
+    }
+}
+
 /// Tabs above the canvas: all active layers, then each copper layer. ⌘1, ⌘2, … select them.
 struct LayerTabBar: View {
     @EnvironmentObject var model: BoardModel
 
     var body: some View {
         HStack(spacing: 0) {
-            tabs
-            Divider().frame(height: 22)
-            FlipButtons()
-                .padding(.horizontal, 8)
+            if model.viewMode == .twoD {
+                tabs
+            } else {
+                Text("3D view: drag to turn, scroll or pinch to zoom, two fingers or ⌥-drag to pan")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                Spacer()
+            }
         }
         .background(.bar)
     }
@@ -140,20 +300,52 @@ struct FlipButtons: View {
     @EnvironmentObject var viewport: Viewport
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Toggle(isOn: Binding(get: { viewport.flipX }, set: { viewport.setFlip(x: $0) })) {
                 Label("Flip X", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                    .frame(maxWidth: .infinity)
             }
             .help("Mirror left–right (⇧⌘X)")
             Toggle(isOn: Binding(get: { viewport.flipY }, set: { viewport.setFlip(y: $0) })) {
                 Label("Flip Y", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+                    .frame(maxWidth: .infinity)
             }
             .help("Mirror top–bottom (⇧⌘Y)")
         }
         .toggleStyle(.button)
-        .controlSize(.small)
         .labelStyle(.titleAndIcon)
-        .background(.bar)
+    }
+}
+
+/// Front: the board seen from the top side. Back: seen from the bottom side, mirrored
+/// as in KiCad's bottom view (2D), or with the camera underneath the board (3D).
+struct FrontBackButtons: View {
+    @EnvironmentObject var model: BoardModel
+    @EnvironmentObject var viewport: Viewport
+    @EnvironmentObject var threeD: ThreeDController
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Button { show(back: false) } label: {
+                Label("Front", systemImage: "square.3.layers.3d.top.filled").frame(maxWidth: .infinity)
+            }
+            .help("View the board from the top side")
+            Button { show(back: true) } label: {
+                Label("Back", systemImage: "square.3.layers.3d.bottom.filled").frame(maxWidth: .infinity)
+            }
+            .help("View the board from the bottom side")
+        }
+        .labelStyle(.titleAndIcon)
+    }
+
+    private func show(back: Bool) {
+        if model.viewMode == .threeD {
+            // The camera underneath already shows the bottom mirrored, so no flips.
+            viewport.setFlip(x: false, y: false)
+            threeD.look(from: SIMD3(0, back ? -1 : 1, 0))
+        } else {
+            viewport.setFlip(x: back, y: false)
+        }
     }
 }
 
@@ -327,20 +519,120 @@ struct SelectionDetails: View {
     }
 
     private func footprintSection(_ fp: Footprint) -> some View {
-        InfoSection(title: "Footprint \(fp.reference)", rows: [
-            ("Value", fp.value),
-            ("Library", fp.libraryID),
-            ("Side", fp.isBottom ? "Bottom" : "Top"),
-            ("Position", position(fp.position)),
-            ("Rotation", String(format: "%.1f°", fp.rotation)),
-            ("Pads", "\(fp.pads.count)"),
-            ("Sheet", fp.sheetName ?? "–"),
-        ])
+        ComponentSection(footprint: fp)
     }
 
     private func position(_ p: Point) -> String { String(format: "%.3f, %.3f", p.x, p.y) }
 
     private func length(_ pts: [Point]) -> Double {
         zip(pts, pts.dropFirst()).reduce(0) { $0 + $1.0.distance(to: $1.1) }
+    }
+}
+
+/// Everything about a component: its fields from the schematic, placement, and a datasheet button.
+struct ComponentSection: View {
+    let footprint: Footprint
+    @State private var status: String?
+    @State private var downloading = false
+
+    private static let shown: Set<String> = ["Reference", "Value", "Footprint", "Datasheet", "Description"]
+
+    var body: some View {
+        let fp = footprint
+        let p = fp.properties
+        let description = p["Description"].flatMap { $0.isEmpty ? nil : $0 }
+        let extras = p.filter { !Self.shown.contains($0.key) && !$0.value.isEmpty && !$0.key.hasPrefix("ki_") }
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+        var rows: [(String, String)] = [
+                ("Value", fp.value),
+                ("Description", description ?? "–"),
+                ("Footprint", fp.libraryID),
+                ("Side", fp.isBottom ? "Bottom" : "Top"),
+                ("Position", String(format: "%.3f, %.3f", fp.position.x, fp.position.y)),
+                ("Rotation", String(format: "%.1f°", fp.rotation)),
+                ("Pads", "\(fp.pads.count)"),
+                ("Type", fp.attributes.isEmpty ? "–" : fp.attributes.joined(separator: ", ")),
+                ("Sheet", fp.sheetName ?? "–"),
+                ("3D model", fp.models.first.map { ($0.path as NSString).lastPathComponent } ?? "–"),
+        ]
+        rows += extras.map { ($0.key, $0.value) }
+        return VStack(alignment: .leading, spacing: 10) {
+            InfoSection(title: "Component \(fp.reference)", rows: rows)
+            if let link = datasheet {
+                HStack {
+                    Button {
+                        download(link)
+                    } label: {
+                        Label(downloading ? "Downloading…" : "Download Datasheet", systemImage: "arrow.down.doc")
+                    }
+                    .disabled(downloading)
+                    Button("Open") { open(link) }
+                        .help(link)
+                }
+                if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
+            } else {
+                Text("No datasheet link in this component's Datasheet field.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: footprint.reference) { _ in status = nil }
+    }
+
+    /// The Datasheet field, if it holds a link or a file path.
+    private var datasheet: String? {
+        guard let d = footprint.properties["Datasheet"]?.trimmingCharacters(in: .whitespaces),
+              !d.isEmpty, d != "~" else { return nil }
+        return d
+    }
+
+    private func url(_ link: String) -> URL? {
+        if link.hasPrefix("http://") || link.hasPrefix("https://") { return URL(string: link) }
+        if link.hasPrefix("www.") { return URL(string: "https://" + link) }
+        if link.hasPrefix("/") || link.hasPrefix("~") { return URL(fileURLWithPath: (link as NSString).expandingTildeInPath) }
+        return URL(string: link)
+    }
+
+    private func open(_ link: String) {
+        guard let u = url(link) else { status = "This is not a link: \(link)"; return }
+        NSWorkspace.shared.open(u)
+    }
+
+    /// Downloads the datasheet into the Downloads folder and shows it in the Finder.
+    /// If the site does not hand out a PDF, the page opens in the browser instead.
+    private func download(_ link: String) {
+        guard let u = url(link) else { status = "This is not a link: \(link)"; return }
+        if u.isFileURL { NSWorkspace.shared.activateFileViewerSelecting([u]); return }
+        downloading = true
+        status = nil
+        let reference = footprint.reference
+        Task { @MainActor in
+            defer { downloading = false }
+            do {
+                var request = URLRequest(url: u)
+                request.setValue("Mozilla/5.0 (Macintosh) PCBReview", forHTTPHeaderField: "User-Agent")
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                let mime = response.mimeType ?? ""
+                guard mime.contains("pdf") || u.pathExtension.lowercased() == "pdf" else {
+                    try? FileManager.default.removeItem(at: temp)
+                    NSWorkspace.shared.open(u)
+                    status = "The link leads to a web page, so it opened in your browser."
+                    return
+                }
+                let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+                var name = response.suggestedFilename ?? u.lastPathComponent
+                if name.isEmpty || name == "/" { name = "\(reference) datasheet.pdf" }
+                if !name.lowercased().hasSuffix(".pdf") { name += ".pdf" }
+                var target = downloads.appendingPathComponent(name)
+                var n = 2
+                while FileManager.default.fileExists(atPath: target.path) {
+                    target = downloads.appendingPathComponent((name as NSString).deletingPathExtension + " \(n).pdf")
+                    n += 1
+                }
+                try FileManager.default.moveItem(at: temp, to: target)
+                NSWorkspace.shared.activateFileViewerSelecting([target])
+                status = "Saved to Downloads as \(target.lastPathComponent)."
+            } catch {
+                status = "Download failed: \(error.localizedDescription)"
+            }
+        }
     }
 }
