@@ -19,7 +19,7 @@ var targets: [Target] = [
 // The SwiftUI app only builds on macOS. Run it with `swift run PCBReview [board.kicad_pcb]`
 // or open Package.swift in Xcode and run the PCBReview scheme.
 products.append(.executable(name: "PCBReview", targets: ["PCBReview"]))
-targets.append(.executableTarget(name: "PCBReview", dependencies: ["KiCadKit"]))
+targets.append(.executableTarget(name: "PCBReview", dependencies: ["KiCadKit"], resources: [.copy("Resources/AppIcon.png")]))
 #endif
 
 let package = Package(
