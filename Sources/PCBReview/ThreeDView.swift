@@ -211,18 +211,60 @@ final class ThreeDController: ObservableObject {
         updateRulers()
     }
 
-    /// The home view chosen in Settings (isometric unless changed), looking at the board centre.
+    /// The home view chosen in Settings (isometric unless changed), fitted to the board.
     func home(animated: Bool = true) {
         let view = HomeView(rawValue: UserDefaults.standard.string(forKey: AppSettings.homeView) ?? "") ?? .isometric
-        target = .zero
         let (newYaw, newPitch) = view.angles
         var delta = newYaw - yaw
         while delta > .pi { delta -= 2 * .pi }
         while delta < -.pi { delta += 2 * .pi }
         yaw += delta
         pitch = newPitch
-        distance = boardSize * 2.1
+        fitToBoard()
         applyCamera(animated: animated)
+    }
+
+    /// Sets the target and distance so the board (and the components, when shown)
+    /// fill the view from the current direction, with a small margin.
+    private func fitToBoard() {
+        var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
+        for node in [boardNode, componentsNode] {
+            guard let node, !node.isHidden else { continue }
+            let (a, b) = node.boundingBox
+            guard a.x <= b.x else { continue }
+            lo = simd_min(lo, SIMD3(Float(a.x), Float(a.y), Float(a.z)))
+            hi = simd_max(hi, SIMD3(Float(b.x), Float(b.y), Float(b.z)))
+        }
+        guard lo.x.isFinite, hi.x.isFinite else {
+            target = .zero
+            distance = boardSize * 2.1
+            return
+        }
+        let q = rotation
+        let right = q.act(SIMD3(1, 0, 0)), up = q.act(SIMD3(0, 1, 0)), back = q.act(SIMD3(0, 0, 1))
+        var corners: [SIMD3<Float>] = []
+        for x in [lo.x, hi.x] { for y in [lo.y, hi.y] { for z in [lo.z, hi.z] { corners.append(SIMD3(x, y, z)) } } }
+        let us = corners.map { simd_dot($0, right) }, vs = corners.map { simd_dot($0, up) }, ws = corners.map { simd_dot($0, back) }
+        let uc = (us.min()! + us.max()!) / 2, vc = (vs.min()! + vs.max()!) / 2, wc = (ws.min()! + ws.max()!) / 2
+        target = right * uc + up * vc + back * wc
+        var size = mainView?.bounds.size ?? .zero
+        if size.width < 10 || size.height < 10 { size = CGSize(width: 800, height: 600) }
+        let aspect = Float(max(size.width, 1) / max(size.height, 1))
+        let margin: Float = 1.06
+        // Orthographic: the camera shows ±(distance · 0.32) vertically (see applyCamera).
+        let halfU = (us.max()! - us.min()!) / 2 * margin, halfV = (vs.max()! - vs.min()!) / 2 * margin
+        let orthoDistance = max(halfV, halfU / aspect) / 0.32
+        // Perspective: every corner must lie inside the view cone.
+        let fov = Float(cameraNode.camera?.fieldOfView ?? 35) * .pi / 180
+        let tanV = tan(fov / 2), tanU = tanV * aspect
+        var perspectiveDistance: Float = 0
+        for i in corners.indices {
+            let depth = ws[i] - wc
+            perspectiveDistance = max(perspectiveDistance,
+                                      depth + abs(vs[i] - vc) * margin / tanV,
+                                      depth + abs(us[i] - uc) * margin / tanU)
+        }
+        distance = max(orthographic ? orthoDistance : perspectiveDistance, boardSize * 0.05)
     }
 
     /// Looks at the board from `direction` (from the board centre towards the camera).
@@ -270,8 +312,7 @@ final class ThreeDController: ObservableObject {
 
     /// Zoom to fit: the whole board, from the current direction.
     func fit() {
-        target = .zero
-        distance = boardSize * 2.1
+        fitToBoard()
         applyCamera(animated: true)
     }
 
