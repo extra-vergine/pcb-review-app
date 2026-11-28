@@ -7,6 +7,7 @@ import KiCadKit
 struct NavigatorView: View {
     @EnvironmentObject var model: BoardModel
     @EnvironmentObject var viewport: Viewport
+    @EnvironmentObject var threeD: ThreeDController
     @State private var dragStart: Point?
 
     var body: some View {
@@ -14,13 +15,17 @@ struct NavigatorView: View {
             let mini = miniTransform(geo.size)
             ZStack {
                 NavigatorMiniature(transform: mini)
-                NavigatorFrame(transform: mini)
+                NavigatorFrame(transform: mini, viewport: model.viewMode == .twoD ? viewport : threeD.rulerViewport)
             }
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
                     .onChanged { g in
                         guard let mini else { return }
+                        if model.viewMode == .threeD {
+                            threeD.center(onBoard: mini.board(g.location))
+                            return
+                        }
                         let start = dragStart ?? viewport.centerPoint
                         if dragStart == nil { dragStart = start }
                         let a = mini.board(g.startLocation), b = mini.board(g.location)
@@ -31,11 +36,12 @@ struct NavigatorView: View {
             .simultaneousGesture(TapGesture(count: 2).onEnded {
                 model.showOnly(\.visibleByDefault)
                 model.tab = .all
-                model.fitRequest += 1
+                if model.viewMode == .twoD { model.fitRequest += 1 } else { threeD.home() }
             })
         }
         .background(RoundedRectangle(cornerRadius: 8).fill(Color.black.opacity(0.3)))
-        .help("Drag to move the view. Double-click for zoom to fit and the default layers.")
+        .help(model.viewMode == .twoD ? "Drag to move the view. Double-click for zoom to fit and the default layers."
+              : "Drag to centre the 3D view on a spot. Double-click for the home view and the default layers.")
     }
 
     private func miniTransform(_ size: CGSize) -> ViewTransform? {
@@ -64,7 +70,7 @@ private struct NavigatorMiniature: View {
 /// The visible area as a frame. Redraws when the view moves.
 private struct NavigatorFrame: View {
     let transform: ViewTransform?
-    @EnvironmentObject var viewport: Viewport
+    @ObservedObject var viewport: Viewport
 
     var body: some View {
         let visible = viewport.visibleBoardRect

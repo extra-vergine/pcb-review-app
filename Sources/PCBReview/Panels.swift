@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import KiCadKit
 
@@ -5,13 +6,36 @@ struct LayerPanel: View {
     @EnvironmentObject var model: BoardModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            Group {
-                if model.viewMode == .twoD { NavigatorView() } else { ViewCubeView() }
+        VStack(spacing: 8) {
+            Picker("", selection: $model.viewMode) {
+                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
             }
-            .frame(height: 170)
-            .padding(8)
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .help("Switch between the 2D (⌃2) and 3D (⌃3) views")
+            .padding([.horizontal, .top], 8)
             list
+            VStack(spacing: 6) {
+                HStack(spacing: 6) {
+                    Button { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } } label: {
+                        Text("Copper only").frame(maxWidth: .infinity)
+                    }
+                    Button { model.showOnly(\.visibleByDefault) } label: {
+                        Text("Defaults").frame(maxWidth: .infinity)
+                    }
+                }
+                FlipButtons()
+            }
+            .controlSize(.large)
+            .padding(.horizontal, 8)
+            if model.viewMode == .threeD {
+                ViewCubeView()
+                    .frame(height: 150)
+                    .padding(.horizontal, 8)
+            }
+            NavigatorView()
+                .frame(height: 140)
+                .padding([.horizontal, .bottom], 8)
         }
     }
 
@@ -34,8 +58,14 @@ struct LayerPanel: View {
                     Divider()
                     ForEach(BoardAppearance.maskOptions) { Text($0.label).tag($0.id) }
                 }
+                Picker("Silkscreen", selection: $model.silkChoice) {
+                    Text("Automatic (to suit the mask)").tag(BoardModel.autoChoice)
+                    Text("From file (\(model.fileSilkName))").tag(BoardModel.fileChoice)
+                    Divider()
+                    ForEach(BoardAppearance.silkOptions) { Text($0.label).tag($0.id) }
+                }
             }
-            Section("Copper") {
+            Section("Copper (⌥-click a check mark for all)") {
                 ForEach(model.layerList.filter(\.isCopper)) { row($0) }
             }
             Section("Other layers") {
@@ -55,16 +85,6 @@ struct LayerPanel: View {
                 Toggle("Mounting holes, horizontal", isOn: $model.showHoleSpacingX)
                 Toggle("Mounting holes, vertical", isOn: $model.showHoleSpacingY)
             }
-            Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack {
-                        Button("Copper only") { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } }
-                        Button("Defaults") { model.showOnly(\.visibleByDefault) }
-                    }
-                    .controlSize(.small)
-                    FlipButtons()
-                }
-            }
         }
         .listStyle(.sidebar)
     }
@@ -75,14 +95,18 @@ struct LayerPanel: View {
         let active = model.isActive(layer.name)
         return HStack(spacing: 10) {
             Button {
-                model.toggle(layer.name)
+                if NSEvent.modifierFlags.contains(.option) {
+                    model.setGroup(copper: layer.isCopper, active: !active)
+                } else {
+                    model.toggle(layer.name)
+                }
             } label: {
                 Image(systemName: active ? "checkmark.circle.fill" : "circle")
                     .foregroundStyle(active ? Color.green : Color.secondary)
                     .font(.system(size: 14))
             }
             .buttonStyle(.plain)
-            .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
+            .help((active ? "Deactivate \(layer.name)" : "Activate \(layer.name)") + ". ⌥-click for all \(layer.isCopper ? "copper" : "other") layers.")
 
             ColorSwatch(color: model.color(of: layer.name)) { model.setColor($0, for: layer.name) }
             .help("Choose a colour for \(layer.name)")
@@ -120,15 +144,6 @@ struct LayerTabBar: View {
                     .padding(.horizontal, 12)
                 Spacer()
             }
-            Divider().frame(height: 22)
-            Picker("", selection: $model.viewMode) {
-                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .frame(width: 90)
-            .padding(.horizontal, 8)
-            .help("Switch between the 2D and 3D views")
         }
         .background(.bar)
     }
@@ -181,18 +196,19 @@ struct FlipButtons: View {
     @EnvironmentObject var viewport: Viewport
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 6) {
             Toggle(isOn: Binding(get: { viewport.flipX }, set: { viewport.setFlip(x: $0) })) {
                 Label("Flip X", systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right")
+                    .frame(maxWidth: .infinity)
             }
             .help("Mirror left–right (⇧⌘X)")
             Toggle(isOn: Binding(get: { viewport.flipY }, set: { viewport.setFlip(y: $0) })) {
                 Label("Flip Y", systemImage: "arrow.up.and.down.righttriangle.up.righttriangle.down")
+                    .frame(maxWidth: .infinity)
             }
             .help("Mirror top–bottom (⇧⌘Y)")
         }
         .toggleStyle(.button)
-        .controlSize(.small)
         .labelStyle(.titleAndIcon)
     }
 }

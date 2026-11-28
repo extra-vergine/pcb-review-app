@@ -30,6 +30,11 @@ public enum BoardAppearance {
         .init(id: "none", name: "No mask", color: RGBA(0, 0, 0, 0), offeredBy: ["PCBWay"]),
     ]
 
+    public static let silkOptions: [FabFinishOption] = [
+        .init(id: "white", name: "White", color: RGBA(0.95, 0.95, 0.93), offeredBy: both),
+        .init(id: "black", name: "Black", color: RGBA(0.08, 0.08, 0.08), offeredBy: both),
+    ]
+
     public static let materialOptions: [FabFinishOption] = [
         .init(id: "fr4", name: "FR-4", color: RGBA(0.75, 0.7, 0.48), offeredBy: both),
         .init(id: "aluminium", name: "Aluminium core", color: RGBA(0.78, 0.79, 0.8), offeredBy: both),

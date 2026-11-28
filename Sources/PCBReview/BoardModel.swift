@@ -179,7 +179,13 @@ final class BoardModel: ObservableObject {
         didSet { UserDefaults.standard.set(materialChoice, forKey: "materialChoice") }
     }
 
+    /// "auto" (what the fab prints on the chosen mask), "file", or a `BoardAppearance.silkOptions` id.
+    @Published var silkChoice: String = UserDefaults.standard.string(forKey: "silkChoice") ?? "auto" {
+        didSet { UserDefaults.standard.set(silkChoice, forKey: "silkChoice") }
+    }
+
     static let fileChoice = "file"
+    static let autoChoice = "auto"
 
     /// The colours the board is previewed in.
     var look: BoardLook {
@@ -189,10 +195,12 @@ final class BoardModel: ObservableObject {
         let hasMask = maskOption?.id != "none"
         let material = BoardAppearance.materialOptions.first { $0.id == materialChoice }?.color
             ?? BoardAppearance.materialColor(board?.fileCoreMaterial)
-        // Fabs print black silkscreen on white and yellow masks, white on the rest.
+        // Automatic: fabs print black silkscreen on white and yellow masks, white on the rest.
         var silk = board?.fileSilkColor ?? RGBA(0.95, 0.95, 0.93)
-        if maskOption != nil {
+        if silkChoice == Self.autoChoice, maskOption != nil {
             silk = ["white", "yellow"].contains(maskChoice) ? RGBA(0.08, 0.08, 0.08) : RGBA(0.95, 0.95, 0.93)
+        } else if let s = BoardAppearance.silkOptions.first(where: { $0.id == silkChoice }) {
+            silk = s.color
         }
         return BoardLook(mask: mask, material: material, silk: silk,
                          finish: BoardAppearance.finishColor(board?.copperFinish), hasMask: hasMask)
@@ -200,6 +208,7 @@ final class BoardModel: ObservableObject {
 
     /// The mask colour the file sets, for the menu, e.g. "Black".
     var fileMaskName: String { input?.board.stackup.first { $0.name == "F.Mask" }?.color ?? "not set" }
+    var fileSilkName: String { input?.board.stackup.first { $0.name == "F.SilkS" }?.color ?? "not set" }
     var fileMaterialName: String { input?.board.fileCoreMaterial ?? "not set" }
     /// Findings from KiCad's own DRC (`kicad-cli`), nil until it has run for this board.
     @Published private(set) var drcFindings: [Finding]?
@@ -609,6 +618,14 @@ final class BoardModel: ObservableObject {
 
     func toggle(_ layer: String) {
         if visibleLayers.contains(layer) { visibleLayers.remove(layer) } else { visibleLayers.insert(layer) }
+        revalidateSelection()
+    }
+
+    /// Switches every copper layer (or every other layer) on or off at once.
+    func setGroup(copper: Bool, active: Bool) {
+        for l in layerList where l.isCopper == copper {
+            if active { visibleLayers.insert(l.name) } else { visibleLayers.remove(l.name) }
+        }
         revalidateSelection()
     }
 

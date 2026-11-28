@@ -26,6 +26,15 @@ struct PCBReviewApp: App {
                 }
         }
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About PCB Review") {
+                    NSApp.orderFrontStandardAboutPanel(options: [
+                        .applicationName: "PCB Review",
+                        .applicationVersion: "0.3",
+                        NSApplication.AboutPanelOptionKey(rawValue: "Copyright"): "© René Nessler",
+                    ])
+                }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open Board…") { model.showOpenPanel() }
                     .keyboardShortcut("o")
@@ -46,6 +55,13 @@ struct PCBReviewApp: App {
                     .disabled(model.input == nil)
             }
             ViewCommands(model: model, viewport: viewport)
+            CommandGroup(after: .sidebar) {
+                Button("2D View") { model.viewMode = .twoD }
+                    .keyboardShortcut("2", modifiers: .control)
+                Button("3D View") { model.viewMode = .threeD }
+                    .keyboardShortcut("3", modifiers: .control)
+                Divider()
+            }
             CommandMenu("Checks") {
                 Button("Next Finding") { model.stepFinding(by: 1) }
                     .keyboardShortcut("]")
@@ -57,6 +73,9 @@ struct PCBReviewApp: App {
                 Button("Copy Findings as Text") { model.copyFindings() }
                     .keyboardShortcut("c", modifiers: [.command, .shift])
             }
+        }
+        Settings {
+            SettingsView()
         }
     }
 }
@@ -117,6 +136,7 @@ struct ViewCommands: Commands {
 /// from `swift run`, which launches a bare executable rather than an .app bundle.
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        AppSettings.applyAppearance()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
     }
@@ -170,17 +190,39 @@ struct ContentView: View {
     }
 }
 
-/// The 3D view, rebuilt when the board, its look or the Components option changes.
+/// The 3D view, rebuilt when the board, its look, the layers or the options change.
 struct ThreeDArea: View {
     @EnvironmentObject var model: BoardModel
     @EnvironmentObject var controller: ThreeDController
 
     var body: some View {
-        Board3DView(controller: controller)
-            .onAppear { controller.load(model) }
-            .onChange(of: model.look) { _ in controller.load(model) }
-            .onChange(of: model.showComponents) { _ in controller.load(model) }
-            .onChange(of: model.url) { _ in controller.load(model) }
+        ZStack(alignment: .topLeading) {
+            Board3DView(controller: controller)
+            if model.showRulers {
+                RulersView(origin: model.userOrigin)
+                    .environmentObject(controller.rulerViewport)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                if model.showRulers && !controller.rulersExact {
+                    Text("Rulers are exact in the top view with the orthographic camera (eye button).")
+                }
+                if let s = controller.modelStatus { Text(s) }
+            }
+            .font(.system(size: 11))
+            .padding(.horizontal, 8).padding(.vertical, 4)
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
+            .padding(model.showRulers ? BoardCanvasView.rulerSize + 6 : 6)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        }
+        .onAppear { controller.load(model) }
+        .onChange(of: model.look) { _ in controller.load(model) }
+        .onChange(of: model.showComponents) { _ in controller.load(model) }
+        .onChange(of: model.url) { _ in controller.load(model) }
+        .onChange(of: model.visibleLayers) { _ in controller.load(model) }
+        .onChange(of: model.showZoneFills) { _ in controller.load(model) }
+        .onChange(of: model.showVias) { _ in controller.load(model) }
+        .onChange(of: model.showOrigin) { _ in controller.load(model) }
+        .onChange(of: model.originCorner) { _ in controller.load(model) }
     }
 }
 
