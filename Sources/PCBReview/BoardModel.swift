@@ -504,10 +504,19 @@ final class BoardModel: ObservableObject {
         if let c = originCorner { return c.rawValue }
         guard let board = input?.board, let b = board.outlineBounds else { return "file origin" }
         let o = board.userOrigin
-        if let c = OriginCorner.allCases.first(where: { $0.point(in: b).distance(to: o) < 0.01 }) {
-            return "file origin (\(c.rawValue))"
+        return "file origin (\(fileOriginPlace))"
+    }
+
+    /// Where the file's own origin sits: a corner or the centre of the board, or its coordinates.
+    var fileOriginPlace: String {
+        guard let board = input?.board else { return "not set" }
+        let o = board.userOrigin
+        if let b = board.outlineBounds,
+           let c = OriginCorner.allCases.first(where: { $0.point(in: b).distance(to: o) < 0.01 }) {
+            return c.rawValue
         }
-        return "file origin"
+        if board.auxAxisOrigin == nil && board.gridOrigin == nil { return "not set: page corner" }
+        return "at " + units.format(o.x, withUnit: false) + ", " + units.format(o.y)
     }
 
     /// Moves the origin along the cycle: file origin → lower left → lower right → centre → upper right → upper left → file origin.

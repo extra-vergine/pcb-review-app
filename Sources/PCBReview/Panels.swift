@@ -50,7 +50,7 @@ struct LayerPanel: View {
     @ViewBuilder private var groups: some View {
         PanelGroup("Board") {
             Picker("Origin", selection: $model.originCorner) {
-                Text("File origin").tag(OriginCorner?.none)
+                Text("File origin (\(model.fileOriginPlace))").tag(OriginCorner?.none)
                 ForEach(OriginCorner.allCases, id: \.self) { c in
                     Text(c.rawValue.capitalized).tag(OriginCorner?.some(c))
                 }

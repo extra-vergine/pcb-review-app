@@ -54,7 +54,7 @@ struct PCBReviewApp: App {
                     .keyboardShortcut("p")
                     .disabled(model.input == nil)
             }
-            ViewCommands(model: model, viewport: viewport)
+            ViewCommands(model: model, viewport: viewport, threeD: threeD)
             CommandGroup(after: .sidebar) {
                 Button("2D View") { model.viewMode = .twoD }
                     .keyboardShortcut("2", modifiers: .control)
@@ -80,20 +80,52 @@ struct PCBReviewApp: App {
     }
 }
 
+extension ThreeDArea {
+    /// The same zoom keys as the 2D canvas, for any keyboard layout:
+    /// ⌘ + numpad plus, ⌘⇧1 and any ⌘ "+" zoom in; ⌘ + numpad minus zooms out.
+    fileprivate func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        let controller = controller
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            if NSApp.keyWindow?.firstResponder is NSText { return event }
+            let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            guard mods.contains(.command), !mods.contains(.option), !mods.contains(.control) else { return event }
+            let keypadPlus: UInt16 = 69, keypadMinus: UInt16 = 78, digitOne: UInt16 = 18
+            if event.keyCode == keypadPlus || (event.keyCode == digitOne && mods.contains(.shift))
+                || event.charactersIgnoringModifiers == "+" || event.characters == "+" {
+                controller.zoom(by: 0.8)
+                return nil
+            }
+            if event.keyCode == keypadMinus {
+                controller.zoom(by: 1.25)
+                return nil
+            }
+            return event
+        }
+    }
+}
+
 /// View menu items: zoom, rulers, selection and the layer tabs (⌘1, ⌘2, …).
 struct ViewCommands: Commands {
     @ObservedObject var model: BoardModel
     let viewport: Viewport
+    let threeD: ThreeDController
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
             // ⌘ + numpad plus and ⌘⇧1 also zoom in; the canvas key handler catches those.
-            Button("Zoom In") { viewport.zoomCentered(by: 1.25) }
-                .keyboardShortcut("+")
-            Button("Zoom Out") { viewport.zoomCentered(by: 0.8) }
-                .keyboardShortcut("-")
-            Button("Zoom to Fit") { model.fitRequest += 1 }
-                .keyboardShortcut("0")
+            Button("Zoom In") {
+                if model.viewMode == .threeD { threeD.zoom(by: 0.8) } else { viewport.zoomCentered(by: 1.25) }
+            }
+            .keyboardShortcut("+")
+            Button("Zoom Out") {
+                if model.viewMode == .threeD { threeD.zoom(by: 1.25) } else { viewport.zoomCentered(by: 0.8) }
+            }
+            .keyboardShortcut("-")
+            Button("Zoom to Fit") {
+                if model.viewMode == .threeD { threeD.fit() } else { model.fitRequest += 1 }
+            }
+            .keyboardShortcut("0")
             Divider()
             Button("Flip X (Mirror Left–Right)") { viewport.setFlip(x: !viewport.flipX) }
                 .keyboardShortcut("x", modifiers: [.command, .shift])
@@ -197,10 +229,13 @@ struct ContentView: View {
 struct ThreeDArea: View {
     @EnvironmentObject var model: BoardModel
     @EnvironmentObject var controller: ThreeDController
+    @EnvironmentObject var viewport: Viewport
+    @State private var keyMonitor: Any?
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             Board3DView(controller: controller)
+                .scaleEffect(x: controller.mirrorX ? -1 : 1, y: controller.mirrorY ? -1 : 1)
             if model.showRulers {
                 RulersView(origin: model.userOrigin)
                     .environmentObject(controller.rulerViewport)
@@ -217,7 +252,17 @@ struct ThreeDArea: View {
             .padding(model.showRulers ? BoardCanvasView.rulerSize + 6 : 6)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
-        .onAppear { controller.load(model) }
+        .onAppear {
+            controller.load(model)
+            controller.setMirror(x: viewport.flipX, y: viewport.flipY)
+            installKeyMonitor()
+        }
+        .onDisappear {
+            if let m = keyMonitor { NSEvent.removeMonitor(m) }
+            keyMonitor = nil
+        }
+        .onChange(of: viewport.flipX) { _ in controller.setMirror(x: viewport.flipX, y: viewport.flipY) }
+        .onChange(of: viewport.flipY) { _ in controller.setMirror(x: viewport.flipX, y: viewport.flipY) }
         .onChange(of: model.look) { _ in controller.load(model) }
         .onChange(of: model.showComponents) { _ in controller.load(model) }
         .onChange(of: model.url) { _ in controller.load(model) }

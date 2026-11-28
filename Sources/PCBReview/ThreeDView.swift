@@ -130,6 +130,7 @@ final class ThreeDController: ObservableObject {
         loadComponents(model)
         componentsNode?.isHidden = !model.showComponents
         setShadow(model.showShadow)
+        updateOrigin(origin)
     }
 
     private func loadComponents(_ model: BoardModel) {
@@ -237,6 +238,68 @@ final class ThreeDController: ObservableObject {
         applyCamera()
     }
 
+    /// Zoom to fit: the whole board, from the current direction.
+    func fit() {
+        target = .zero
+        distance = boardSize * 2.1
+        applyCamera(animated: true)
+    }
+
+    /// Flip X / Flip Y: the view is drawn mirrored, as in 2D.
+    @Published private(set) var mirrorX = false
+    @Published private(set) var mirrorY = false
+
+    func setMirror(x: Bool, y: Bool) {
+        guard x != mirrorX || y != mirrorY else { return }
+        mirrorX = x
+        mirrorY = y
+        updateRulers()
+    }
+
+    // MARK: Origin marker
+
+    private var originNode: SCNNode?
+
+    /// Axes at the origin: X red, Y green (towards the top of the board), Z blue (up).
+    private func updateOrigin(_ origin: Point?) {
+        originNode?.removeFromParentNode()
+        originNode = nil
+        guard let o = origin else { return }
+        let length = CGFloat(max(boardSize * 0.08, 0.002))
+        let radius = length * 0.035
+        let root = SCNNode()
+        for (color, direction) in [(NSColor.systemRed, SIMD3<Float>(1, 0, 0)),
+                                   (NSColor.systemGreen, SIMD3<Float>(0, 0, -1)),
+                                   (NSColor.systemBlue, SIMD3<Float>(0, 1, 0))] {
+            let m = SCNMaterial()
+            m.lightingModel = .constant
+            m.diffuse.contents = color
+            let shaft = SCNCylinder(radius: radius, height: length)
+            shaft.materials = [m]
+            let cone = SCNCone(topRadius: 0, bottomRadius: radius * 2.6, height: length * 0.25)
+            cone.materials = [m]
+            let axis = SCNNode()
+            let shaftNode = SCNNode(geometry: shaft)
+            shaftNode.simdPosition = SIMD3(0, Float(length / 2), 0)
+            let coneNode = SCNNode(geometry: cone)
+            coneNode.simdPosition = SIMD3(0, Float(length * 1.125), 0)
+            axis.addChildNode(shaftNode)
+            axis.addChildNode(coneNode)
+            // The geometry points along +y; turn it onto the axis.
+            axis.simdOrientation = simd_quatf(from: SIMD3(0, 1, 0), to: direction)
+            root.addChildNode(axis)
+        }
+        let ball = SCNSphere(radius: radius * 2)
+        let m = SCNMaterial()
+        m.lightingModel = .constant
+        m.diffuse.contents = NSColor(red: 0.35, green: 0.85, blue: 0.95, alpha: 1)
+        ball.materials = [m]
+        root.addChildNode(SCNNode(geometry: ball))
+        root.simdPosition = SIMD3(Float((o.x - boardCenter.x) / 1000), thickness + 0.00005, Float((o.y - boardCenter.y) / 1000))
+        scene.rootNode.addChildNode(root)
+        originNode = root
+    }
+
     func setOrthographic(_ on: Bool) {
         orthographic = on
         applyCamera()
@@ -248,9 +311,10 @@ final class ThreeDController: ObservableObject {
     func updateRulers() {
         guard let v = mainView, v.bounds.width > 0 else { return }
         let h = v.bounds.height
+        let w = v.bounds.width
         func screen(_ bx: Double, _ by: Double) -> CGPoint {
             let s = v.projectPoint(SCNVector3(CGFloat((bx - boardCenter.x) / 1000), CGFloat(thickness), CGFloat((by - boardCenter.y) / 1000)))
-            return CGPoint(x: s.x, y: h - s.y)
+            return CGPoint(x: mirrorX ? w - s.x : s.x, y: mirrorY ? s.y : h - s.y)
         }
         let c = boardCenter
         let p0 = screen(c.x, c.y), px = screen(c.x + 1, c.y), py = screen(c.x, c.y + 1)
@@ -557,6 +621,8 @@ final class BoardSCNView: SCNView {
 
     private func perform(_ g: Gesture3D, dx: CGFloat, dy: CGFloat) {
         guard let c = controller else { return }
+        // The view is drawn mirrored for Flip X / Flip Y, but events arrive unmirrored.
+        let dx = c.mirrorX ? -dx : dx, dy = c.mirrorY ? -dy : dy
         switch g {
         case .orbit: c.orbit(dx: dx, dy: dy)
         case .pan: c.pan(dx: dx, dy: dy)
