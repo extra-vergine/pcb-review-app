@@ -87,7 +87,7 @@ struct LayerPanel: View {
         }
         PanelGroup("Show / hide", hint: "⌥-click: all") {
             groupToggle("Rulers (⌘R)", \.showRulers, in: Self.showHide)
-            groupToggle("Origin", \.showOrigin, in: Self.showHide)
+            groupToggle("Origin (⌥⌘O)", \.showOrigin, in: Self.showHide)
             groupToggle("Shadow (3D)", \.showShadow, in: Self.showHide)
                 .help("A soft shadow under the board in the 3D view")
             groupToggle("Reflection (3D)", \.showReflection, in: Self.showHide)
