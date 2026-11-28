@@ -72,21 +72,33 @@ struct LayerPanel: View {
                 ForEach(BoardAppearance.silkOptions) { Text($0.label).tag($0.id) }
             }
         }
-        PanelGroup("Copper", hint: "⌥-click: all") {
+        PanelGroup("Copper layers", hint: "⌥-click: all") {
             ForEach(model.layerList.filter(\.isCopper)) { row($0) }
         }
         PanelGroup("Other layers", hint: "⌥-click: all") {
             ForEach(model.layerList.filter { !$0.isCopper }) { row($0) }
         }
-        PanelGroup("Elements", hint: "⌥-click: all") {
-            groupToggle("Origin", \.showOrigin, in: Self.elements)
-            groupToggle("Rulers (⌘R)", \.showRulers, in: Self.elements)
-            groupToggle("Zone fills", \.showZoneFills, in: Self.elements)
-            groupToggle("Vias", \.showVias, in: Self.elements)
+        PanelGroup("Other elements", hint: "⌥-click: all") {
             groupToggle("Components", \.showComponents, in: Self.elements)
                 .help("Pads, footprint graphics and texts, and the 3D models")
-            groupToggle("Shadow (3D)", \.showShadow, in: Self.elements)
+            groupToggle("Vias", \.showVias, in: Self.elements)
+            groupToggle("Zone fills", \.showZoneFills, in: Self.elements)
+        }
+        PanelGroup("Show / hide", hint: "⌥-click: all") {
+            groupToggle("Rulers (⌘R)", \.showRulers, in: Self.showHide)
+            groupToggle("Origin", \.showOrigin, in: Self.showHide)
+            groupToggle("Shadow (3D)", \.showShadow, in: Self.showHide)
                 .help("A soft shadow under the board in the 3D view")
+            HStack(spacing: 8) {
+                ColorSwatch(color: model.backgroundColor) { model.backgroundColor = $0 }
+                    .contextMenu { Button("Reset Background") { model.resetBackground() } }
+                Text("Background")
+                Spacer()
+                Button("Reset") { model.resetBackground() }
+                    .buttonStyle(.link)
+                    .font(.caption)
+            }
+            .help("The background colour of the 2D and 3D views")
         }
         PanelGroup("Dimensions", hint: "⌥-click: all") {
             groupToggle("Board, horizontal", \.showBoardWidth, in: Self.dimensions)
@@ -96,8 +108,8 @@ struct LayerPanel: View {
         }
     }
 
-    static let elements: [ReferenceWritableKeyPath<BoardModel, Bool>] =
-        [\.showOrigin, \.showRulers, \.showZoneFills, \.showVias, \.showComponents, \.showShadow]
+    static let elements: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showComponents, \.showVias, \.showZoneFills]
+    static let showHide: [ReferenceWritableKeyPath<BoardModel, Bool>] = [\.showRulers, \.showOrigin, \.showShadow]
     static let dimensions: [ReferenceWritableKeyPath<BoardModel, Bool>] =
         [\.showBoardWidth, \.showBoardHeight, \.showHoleSpacingX, \.showHoleSpacingY]
 
@@ -471,20 +483,120 @@ struct SelectionDetails: View {
     }
 
     private func footprintSection(_ fp: Footprint) -> some View {
-        InfoSection(title: "Footprint \(fp.reference)", rows: [
-            ("Value", fp.value),
-            ("Library", fp.libraryID),
-            ("Side", fp.isBottom ? "Bottom" : "Top"),
-            ("Position", position(fp.position)),
-            ("Rotation", String(format: "%.1f°", fp.rotation)),
-            ("Pads", "\(fp.pads.count)"),
-            ("Sheet", fp.sheetName ?? "–"),
-        ])
+        ComponentSection(footprint: fp)
     }
 
     private func position(_ p: Point) -> String { String(format: "%.3f, %.3f", p.x, p.y) }
 
     private func length(_ pts: [Point]) -> Double {
         zip(pts, pts.dropFirst()).reduce(0) { $0 + $1.0.distance(to: $1.1) }
+    }
+}
+
+/// Everything about a component: its fields from the schematic, placement, and a datasheet button.
+struct ComponentSection: View {
+    let footprint: Footprint
+    @State private var status: String?
+    @State private var downloading = false
+
+    private static let shown: Set<String> = ["Reference", "Value", "Footprint", "Datasheet", "Description"]
+
+    var body: some View {
+        let fp = footprint
+        let p = fp.properties
+        let description = p["Description"].flatMap { $0.isEmpty ? nil : $0 }
+        let extras = p.filter { !Self.shown.contains($0.key) && !$0.value.isEmpty && !$0.key.hasPrefix("ki_") }
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+        var rows: [(String, String)] = [
+                ("Value", fp.value),
+                ("Description", description ?? "–"),
+                ("Footprint", fp.libraryID),
+                ("Side", fp.isBottom ? "Bottom" : "Top"),
+                ("Position", String(format: "%.3f, %.3f", fp.position.x, fp.position.y)),
+                ("Rotation", String(format: "%.1f°", fp.rotation)),
+                ("Pads", "\(fp.pads.count)"),
+                ("Type", fp.attributes.isEmpty ? "–" : fp.attributes.joined(separator: ", ")),
+                ("Sheet", fp.sheetName ?? "–"),
+                ("3D model", fp.models.first.map { ($0.path as NSString).lastPathComponent } ?? "–"),
+        ]
+        rows += extras.map { ($0.key, $0.value) }
+        return VStack(alignment: .leading, spacing: 10) {
+            InfoSection(title: "Component \(fp.reference)", rows: rows)
+            if let link = datasheet {
+                HStack {
+                    Button {
+                        download(link)
+                    } label: {
+                        Label(downloading ? "Downloading…" : "Download Datasheet", systemImage: "arrow.down.doc")
+                    }
+                    .disabled(downloading)
+                    Button("Open") { open(link) }
+                        .help(link)
+                }
+                if let status { Text(status).font(.caption).foregroundStyle(.secondary) }
+            } else {
+                Text("No datasheet link in this component's Datasheet field.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: footprint.reference) { _ in status = nil }
+    }
+
+    /// The Datasheet field, if it holds a link or a file path.
+    private var datasheet: String? {
+        guard let d = footprint.properties["Datasheet"]?.trimmingCharacters(in: .whitespaces),
+              !d.isEmpty, d != "~" else { return nil }
+        return d
+    }
+
+    private func url(_ link: String) -> URL? {
+        if link.hasPrefix("http://") || link.hasPrefix("https://") { return URL(string: link) }
+        if link.hasPrefix("www.") { return URL(string: "https://" + link) }
+        if link.hasPrefix("/") || link.hasPrefix("~") { return URL(fileURLWithPath: (link as NSString).expandingTildeInPath) }
+        return URL(string: link)
+    }
+
+    private func open(_ link: String) {
+        guard let u = url(link) else { status = "This is not a link: \(link)"; return }
+        NSWorkspace.shared.open(u)
+    }
+
+    /// Downloads the datasheet into the Downloads folder and shows it in the Finder.
+    /// If the site does not hand out a PDF, the page opens in the browser instead.
+    private func download(_ link: String) {
+        guard let u = url(link) else { status = "This is not a link: \(link)"; return }
+        if u.isFileURL { NSWorkspace.shared.activateFileViewerSelecting([u]); return }
+        downloading = true
+        status = nil
+        let reference = footprint.reference
+        Task { @MainActor in
+            defer { downloading = false }
+            do {
+                var request = URLRequest(url: u)
+                request.setValue("Mozilla/5.0 (Macintosh) PCBReview", forHTTPHeaderField: "User-Agent")
+                let (temp, response) = try await URLSession.shared.download(for: request)
+                let mime = response.mimeType ?? ""
+                guard mime.contains("pdf") || u.pathExtension.lowercased() == "pdf" else {
+                    try? FileManager.default.removeItem(at: temp)
+                    NSWorkspace.shared.open(u)
+                    status = "The link leads to a web page, so it opened in your browser."
+                    return
+                }
+                let downloads = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask)[0]
+                var name = response.suggestedFilename ?? u.lastPathComponent
+                if name.isEmpty || name == "/" { name = "\(reference) datasheet.pdf" }
+                if !name.lowercased().hasSuffix(".pdf") { name += ".pdf" }
+                var target = downloads.appendingPathComponent(name)
+                var n = 2
+                while FileManager.default.fileExists(atPath: target.path) {
+                    target = downloads.appendingPathComponent((name as NSString).deletingPathExtension + " \(n).pdf")
+                    n += 1
+                }
+                try FileManager.default.moveItem(at: temp, to: target)
+                NSWorkspace.shared.activateFileViewerSelecting([target])
+                status = "Saved to Downloads as \(target.lastPathComponent)."
+            } catch {
+                status = "Download failed: \(error.localizedDescription)"
+            }
+        }
     }
 }

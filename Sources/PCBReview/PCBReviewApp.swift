@@ -253,6 +253,8 @@ struct ThreeDArea: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
         }
         .onAppear {
+            let m = model
+            controller.onPickComponent = { m.selectComponent(reference: $0) }
             controller.load(model)
             controller.setMirror(x: viewport.flipX, y: viewport.flipY)
             installKeyMonitor()
@@ -272,6 +274,9 @@ struct ThreeDArea: View {
         .onChange(of: model.showOrigin) { _ in controller.load(model) }
         .onChange(of: model.originCorner) { _ in controller.load(model) }
         .onChange(of: model.showShadow) { _ in controller.load(model) }
+        .onChange(of: model.dimensions) { _ in controller.load(model) }
+        .onChange(of: model.units) { _ in controller.load(model) }
+        .onChange(of: model.backgroundColor) { _ in controller.load(model) }
     }
 }
 

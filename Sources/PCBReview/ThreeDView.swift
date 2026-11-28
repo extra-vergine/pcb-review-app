@@ -131,6 +131,10 @@ final class ThreeDController: ObservableObject {
         componentsNode?.isHidden = !model.showComponents
         setShadow(model.showShadow)
         updateOrigin(origin)
+        let units = model.units
+        setDimensions(model.dimensions.map { (dimension: $0, label: units.format($0.length)) },
+                      color: NSColor(model.color(of: BoardModel.drawingsLayer)))
+        setBackground(NSColor(model.backgroundColor))
     }
 
     private func loadComponents(_ model: BoardModel) {
@@ -243,6 +247,87 @@ final class ThreeDController: ObservableObject {
         target = .zero
         distance = boardSize * 2.1
         applyCamera(animated: true)
+    }
+
+    /// Called with a component's reference when it is clicked (nil for a click on nothing).
+    var onPickComponent: ((String?) -> Void)?
+
+    /// The component under a click, found through the node's parents.
+    func pick(_ node: SCNNode?) {
+        var n = node
+        while let current = n, let parent = current.parent {
+            if parent === componentsNode, let name = current.name {
+                onPickComponent?(name)
+                return
+            }
+            n = parent
+        }
+        onPickComponent?(nil)
+    }
+
+    func setBackground(_ color: NSColor) {
+        mainView?.backgroundColor = color
+        background = color
+    }
+    private(set) var background = NSColor(red: 0.07, green: 0.08, blue: 0.09, alpha: 1)
+
+    // MARK: Dimensions
+
+    private var dimensionsNode: SCNNode?
+
+    /// Dimension lines, arrows and labels lying on the top of the board, as in 2D.
+    func setDimensions(_ items: [(dimension: LinearDimension, label: String)], color: NSColor) {
+        dimensionsNode?.removeFromParentNode()
+        dimensionsNode = nil
+        guard !items.isEmpty else { return }
+        let root = SCNNode()
+        let y = thickness + 0.00003
+        func world(_ p: Point) -> SIMD3<Float> {
+            SIMD3(Float((p.x - boardCenter.x) / 1000), y, Float((p.y - boardCenter.y) / 1000))
+        }
+        let material = SCNMaterial()
+        material.lightingModel = .constant
+        material.diffuse.contents = color
+        material.isDoubleSided = true
+        var vertices: [SCNVector3] = []
+        func tri(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>) {
+            for v in [a, b, c] { vertices.append(SCNVector3(CGFloat(v.x), CGFloat(v.y), CGFloat(v.z))) }
+        }
+        let halfWidth: Float = 0.075 / 1000
+        for (d, label) in items {
+            let geo = DimensionGeometry(d, arrow: 1.2)
+            for (a, b) in geo.lines {
+                let p = world(a), q = world(b)
+                let dir = q - p
+                let len = simd_length(dir)
+                guard len > 0 else { continue }
+                let side = simd_normalize(SIMD3(-dir.z, 0, dir.x)) * halfWidth
+                tri(p - side, p + side, q + side)
+                tri(p - side, q + side, q - side)
+            }
+            for t in geo.arrows where t.count == 3 { tri(world(t[0]), world(t[1]), world(t[2])) }
+
+            let text = SCNText(string: label, extrusionDepth: 0)
+            text.font = NSFont.systemFont(ofSize: 1.6, weight: .medium)
+            text.flatness = 0.01
+            text.materials = [material]
+            let node = SCNNode(geometry: text)
+            let (lo, hi) = node.boundingBox
+            node.pivot = SCNMatrix4MakeTranslation((lo.x + hi.x) / 2, lo.y - 0.6, 0)
+            node.scale = SCNVector3(0.001, 0.001, 0.001)
+            let flat = simd_quatf(angle: -.pi / 2, axis: SIMD3(1, 0, 0))
+            node.simdOrientation = d.axis == .vertical ? simd_quatf(angle: .pi / 2, axis: SIMD3(0, 1, 0)) * flat : flat
+            node.simdPosition = world(geo.labelAt)
+            root.addChildNode(node)
+        }
+        if !vertices.isEmpty {
+            let g = SCNGeometry(sources: [SCNGeometrySource(vertices: vertices)],
+                                elements: [SCNGeometryElement(indices: Array(0..<Int32(vertices.count)), primitiveType: .triangles)])
+            g.materials = [material]
+            root.addChildNode(SCNNode(geometry: g))
+        }
+        scene.rootNode.addChildNode(root)
+        dimensionsNode = root
     }
 
     /// Flip X / Flip Y: the view is drawn mirrored, as in 2D.
@@ -637,7 +722,26 @@ final class BoardSCNView: SCNView {
         controller?.zoom(by: exp(amount * CGFloat(speed) * sign))
     }
 
+    private var clickMoved = false
+
+    override func mouseDown(with e: NSEvent) {
+        clickMoved = false
+        window?.makeFirstResponder(self)
+    }
+
+    /// A click without a drag selects the component under the pointer.
+    override func mouseUp(with e: NSEvent) {
+        guard !clickMoved, let c = controller else { return }
+        var p = convert(e.locationInWindow, from: nil)
+        // The view may be drawn mirrored (Flip X / Flip Y); hit-test where the click shows.
+        if c.mirrorX { p.x = bounds.width - p.x }
+        if c.mirrorY { p.y = bounds.height - p.y }
+        let hit = hitTest(p, options: [.searchMode: SCNHitTestSearchMode.closest.rawValue]).first
+        c.pick(hit?.node)
+    }
+
     override func mouseDragged(with e: NSEvent) {
+        if abs(e.deltaX) + abs(e.deltaY) > 0.5 { clickMoved = true }
         let g: Gesture3D = e.modifierFlags.contains(.option) ? .pan
             : e.modifierFlags.contains(.shift) ? .zoom
             : AppSettings.gesture(AppSettings.leftDrag, default: .orbit)
@@ -682,7 +786,7 @@ struct Board3DView: NSViewRepresentable {
         v.scene = controller.scene
         v.pointOfView = controller.cameraNode
         v.allowsCameraControl = false
-        v.backgroundColor = NSColor(red: 0.09, green: 0.1, blue: 0.11, alpha: 1)
+        v.backgroundColor = controller.background
         v.antialiasingMode = .multisampling4X
         v.isPlaying = true
         v.controller = controller

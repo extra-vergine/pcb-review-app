@@ -176,7 +176,10 @@ final class BoardModel: ObservableObject {
     @Published var viewMode: ViewMode = .twoD
     /// "file" for the colour in the board file, else a `BoardAppearance.maskOptions` id.
     @Published var maskChoice: String = UserDefaults.standard.string(forKey: "maskChoice") ?? "file" {
-        didSet { UserDefaults.standard.set(maskChoice, forKey: "maskChoice") }
+        didSet {
+            UserDefaults.standard.set(maskChoice, forKey: "maskChoice")
+            if silkChoice == Self.autoChoice { clearSilkColors() }
+        }
     }
     /// "file" for the material in the board file, else a `BoardAppearance.materialOptions` id.
     @Published var materialChoice: String = UserDefaults.standard.string(forKey: "materialChoice") ?? "file" {
@@ -185,7 +188,46 @@ final class BoardModel: ObservableObject {
 
     /// "auto" (what the fab prints on the chosen mask), "file", or a `BoardAppearance.silkOptions` id.
     @Published var silkChoice: String = UserDefaults.standard.string(forKey: "silkChoice") ?? "auto" {
-        didSet { UserDefaults.standard.set(silkChoice, forKey: "silkChoice") }
+        didSet {
+            UserDefaults.standard.set(silkChoice, forKey: "silkChoice")
+            clearSilkColors()
+        }
+    }
+
+    /// A colour picked by hand for a silkscreen layer gives way to the Silkscreen menu.
+    private func clearSilkColors() {
+        guard customColors["F.SilkS"] != nil || customColors["B.SilkS"] != nil else { return }
+        customColors["F.SilkS"] = nil
+        customColors["B.SilkS"] = nil
+        saveColors()
+    }
+
+    /// The canvas and 3D background.
+    @Published var backgroundColor: Color = BoardModel.loadBackground() {
+        didSet {
+            guard let c = NSColor(backgroundColor).usingColorSpace(.sRGB) else { return }
+            UserDefaults.standard.set([Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent)], forKey: "backgroundColor")
+        }
+    }
+
+    private static func loadBackground() -> Color {
+        guard let c = UserDefaults.standard.array(forKey: "backgroundColor") as? [Double], c.count == 3 else { return RenderOptions.background }
+        return Color(.sRGB, red: c[0], green: c[1], blue: c[2], opacity: 1)
+    }
+
+    func resetBackground() {
+        backgroundColor = RenderOptions.background
+        UserDefaults.standard.removeObject(forKey: "backgroundColor")
+    }
+
+    /// Selects a component by its reference (from a click in the 3D view) and shows it in the inspector.
+    func selectComponent(reference: String?) {
+        guard let reference, let i = input?.board.footprints.firstIndex(where: { $0.reference == reference }) else {
+            selection = nil
+            return
+        }
+        selection = .footprint(i)
+        sidePanel = .inspector
     }
 
     static let fileChoice = "file"
@@ -199,12 +241,16 @@ final class BoardModel: ObservableObject {
         let hasMask = maskOption?.id != "none"
         let material = BoardAppearance.materialOptions.first { $0.id == materialChoice }?.color
             ?? BoardAppearance.materialColor(board?.fileCoreMaterial)
-        // Automatic: fabs print black silkscreen on white and yellow masks, white on the rest.
-        var silk = board?.fileSilkColor ?? RGBA(0.95, 0.95, 0.93)
-        if silkChoice == Self.autoChoice, maskOption != nil {
-            silk = ["white", "yellow"].contains(maskChoice) ? RGBA(0.08, 0.08, 0.08) : RGBA(0.95, 0.95, 0.93)
-        } else if let s = BoardAppearance.silkOptions.first(where: { $0.id == silkChoice }) {
+        // Automatic: fabs print black silkscreen on light masks (white, yellow), white on the rest.
+        let white = RGBA(0.95, 0.95, 0.93), black = RGBA(0.08, 0.08, 0.08)
+        var silk: RGBA
+        if let s = BoardAppearance.silkOptions.first(where: { $0.id == silkChoice }) {
             silk = s.color
+        } else if silkChoice == Self.fileChoice {
+            silk = board?.fileSilkColor ?? white
+        } else {
+            let luminance = 0.2126 * mask.r + 0.7152 * mask.g + 0.0722 * mask.b
+            silk = hasMask && luminance > 0.45 ? black : white
         }
         return BoardLook(mask: mask, material: material, silk: silk,
                          finish: BoardAppearance.finishColor(board?.copperFinish), hasMask: hasMask)
@@ -580,7 +626,12 @@ final class BoardModel: ObservableObject {
     // MARK: Layer colours
 
     func color(of layer: String) -> Color {
-        customColors[layer] ?? scene?.color(of: layer) ?? .gray
+        if let c = customColors[layer] { return c }
+        if layer == "F.SilkS" || layer == "B.SilkS" {
+            let s = look.silk
+            return Color(.sRGB, red: s.r, green: s.g, blue: s.b, opacity: 1)
+        }
+        return scene?.color(of: layer) ?? .gray
     }
 
     func setColor(_ color: Color, for layer: String) {
@@ -603,9 +654,11 @@ final class BoardModel: ObservableObject {
         let l = look
         let base = l.hasMask ? l.mask : l.material
         let substrate = Color(.sRGB, red: base.r * 0.42 + 0.03, green: base.g * 0.42 + 0.03, blue: base.b * 0.42 + 0.03, opacity: 1)
-        return RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
-                             showVias: showVias, showComponents: showComponents, highlight: highlight,
-                             substrateColor: substrate)
+        var o = RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
+                              showVias: showVias, showComponents: showComponents, highlight: highlight,
+                              substrateColor: substrate)
+        o.backgroundColor = backgroundColor
+        return o
     }
 
     private static let colorsKey = "layerColors"
@@ -652,6 +705,7 @@ final class BoardModel: ObservableObject {
         if case .zone? = item, !showZoneFills { item = nil }
         if case .via? = item, !showVias { item = nil }
         selection = item
+        if item != nil { sidePanel = .inspector }
     }
 
     private func activateDrawings() {

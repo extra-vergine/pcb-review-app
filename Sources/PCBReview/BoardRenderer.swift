@@ -14,6 +14,7 @@ struct RenderOptions {
     var substrateColor = RenderOptions.substrate
     /// Fill the whole canvas with the background colour. Off for printing.
     var fillBackground = true
+    var backgroundColor = RenderOptions.background
 
     static let background = Color(red: 0.07, green: 0.08, blue: 0.09)
     static let substrate = Color(red: 0.11, green: 0.14, blue: 0.13)
@@ -24,7 +25,7 @@ enum BoardRenderer {
     /// Draws the board into `ctx` using `t` to map board millimetres to points.
     static func draw(_ scene: BoardScene, in ctx: GraphicsContext, size: CGSize, transform t: ViewTransform, options o: RenderOptions) {
         if o.fillBackground {
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(RenderOptions.background))
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(o.backgroundColor))
         }
         var c = ctx
         c.concatenate(t.affine)
@@ -72,8 +73,8 @@ enum BoardRenderer {
 
         if anyCopperDrawn {
             if o.showVias { c.fill(scene.viaPaths, with: .color(RenderOptions.via.opacity(dim))) }
-            c.fill(scene.holes, with: .color(RenderOptions.background))
-            if o.showComponents { c.fill(scene.padHoles, with: .color(RenderOptions.background)) }
+            c.fill(scene.holes, with: .color(o.backgroundColor))
+            if o.showComponents { c.fill(scene.padHoles, with: .color(o.backgroundColor)) }
         }
 
         if let h = o.highlight {
