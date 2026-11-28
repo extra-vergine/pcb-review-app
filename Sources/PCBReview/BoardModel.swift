@@ -502,8 +502,7 @@ final class BoardModel: ObservableObject {
     /// Which corner the origin is at, if it is at one.
     var originDescription: String {
         if let c = originCorner { return c.rawValue }
-        guard let board = input?.board, let b = board.outlineBounds else { return "file origin" }
-        let o = board.userOrigin
+        guard input?.board != nil else { return "file origin" }
         return "file origin (\(fileOriginPlace))"
     }
 
