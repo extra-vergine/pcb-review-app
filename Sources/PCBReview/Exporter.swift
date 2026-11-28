@@ -4,6 +4,7 @@ import PDFKit
 import Quartz
 import SceneKit
 import SceneKit.ModelIO
+import simd
 import SwiftUI
 import UniformTypeIdentifiers
 import KiCadKit
@@ -211,11 +212,12 @@ enum Exporter {
                 o.hpgl2 = settings.hpgl2
                 try HPGLExporter.hpgl(board: input.board, options: o).write(to: url, atomically: true, encoding: .ascii)
             case .glb:
-                let (mesh, images) = try model3D(model: model, board: input.board, scene: scene)
+                var (mesh, images, components) = try model3D(model: model, board: input.board, scene: scene)
+                if let components { SceneMeshes.append(components, to: &mesh) }
                 try GLBWriter.write(mesh, images: images.map(\.png)).write(to: url)
             case .usd:
-                let (mesh, images) = try model3D(model: model, board: input.board, scene: scene)
-                try writeUSD(mesh, images: images.map(\.image), to: url, kind: settings.usdKind)
+                let (mesh, images, components) = try model3D(model: model, board: input.board, scene: scene)
+                try writeUSD(mesh, images: images.map(\.image), components: components, to: url, kind: settings.usdKind)
             }
         } catch {
             model.errorMessage = "Export failed: \(error.localizedDescription)"
@@ -329,6 +331,9 @@ enum Exporter {
         o.showComponents = model.showComponents
         o.flipX = viewport.flipX
         o.flipY = viewport.flipY
+        let render = model.renderOptions
+        o.background = render.backgroundColor.rgba
+        o.substrate = render.substrateColor.rgba
         if !dimensions.isEmpty {
             o.margin = 12
             o.dimensions = dimensions.map { (dimension: $0, label: model.units.format($0.length)) }
@@ -343,31 +348,36 @@ enum Exporter {
 
     struct Texture { let png: Data; let image: NSImage }
 
-    /// The board slab with images of the top and bottom sides as textures.
-    static func model3D(model: BoardModel, board: Board, scene: BoardScene) throws -> (Mesh3D, [Texture]) {
-        guard let bounds = board.outlineBounds, let mesh = BoardMesh.make(board: board, textureBounds: bounds) else {
+    /// The board as it looks in the 3D view: the slab in the chosen board material, its top and
+    /// bottom textures in the chosen mask, silkscreen and finish, and the component models when shown.
+    static func model3D(model: BoardModel, board: Board, scene: BoardScene) throws -> (Mesh3D, [Texture], SCNNode?) {
+        guard let bounds = board.outlineBounds, var mesh = BoardMesh.make(board: board, textureBounds: bounds) else {
             throw ExportError.noOutline
         }
-        func side(_ layers: Set<String>) throws -> Texture {
-            var options = RenderOptions(layers: layers, colors: model.renderColors)
-            options.showZoneFills = model.showZoneFills
-            options.showComponents = model.showComponents
-            let size = CGSize(width: CGFloat(bounds.width) * pngPixelsPerMM, height: CGFloat(bounds.height) * pngPixelsPerMM)
-            let content = BoardPictureView(scene: scene, fitRect: bounds, options: options, margin: 1)
-                .frame(width: size.width, height: size.height)
-                .background(textureBackground)
-            let data = try png(of: content)
-            guard let image = NSImage(data: data) else { throw ExportError.renderFailed }
+        let look = model.look
+        mesh.materials[BoardMesh.edgeMaterial].baseColor = look.material
+        let opts = BoardTextures.Options(look: look, layers: model.visibleLayers, zoneFills: model.showZoneFills, vias: model.showVias,
+                                         components: model.showComponents, origin: nil)
+        let textures: [Texture] = try ["F", "B"].map { side -> Texture in
+            guard let image = BoardTextures.image(scene: scene, bounds: bounds, side: side, options: opts),
+                  let tiff = image.tiffRepresentation, let rep = NSBitmapImageRep(data: tiff),
+                  let data = rep.representation(using: .png, properties: [:]) else { throw ExportError.renderFailed }
             return Texture(png: data, image: image)
         }
-        let top = try side(["F.Cu", "F.SilkS", "Edge.Cuts"])
-        let bottom = try side(["B.Cu", "B.SilkS", "Edge.Cuts"])
-        return (mesh, [top, bottom])
+        var components: SCNNode?
+        if model.showComponents, let url = model.url {
+            let center = Point(bounds.minX + bounds.width / 2, bounds.minY + bounds.height / 2)
+            let thickness = Float((board.thickness ?? 1.6) / 1000)
+            components = ComponentModels.build(board: board, boardURL: url, cli: BoardModel.kicadCLI,
+                                               center: center, thickness: thickness) { _ in }.node
+        }
+        return (mesh, textures, components)
     }
 
-    static func writeUSD(_ mesh: Mesh3D, images: [NSImage], to url: URL, kind: USDKind) throws {
+    static func writeUSD(_ mesh: Mesh3D, images: [NSImage], components: SCNNode?, to url: URL, kind: USDKind) throws {
         let scn = SCNScene()
         scn.rootNode.addChildNode(sceneNode(mesh, images: images))
+        if let components { scn.rootNode.addChildNode(components) }
         switch kind {
         case .usdz:
             guard scn.write(to: url, options: nil, delegate: nil, progressHandler: nil) else { throw ExportError.writeFailed }
@@ -467,4 +477,93 @@ private func textOutline(_ text: String, _ height: Double) -> (path: String, wid
         }
     }
     return (d, Double(width))
+}
+
+/// Turns SceneKit geometry (the component models) into glTF-ready mesh primitives.
+@MainActor
+enum SceneMeshes {
+    /// Appends every geometry under `node` to `mesh`, in world space, one material per colour.
+    static func append(_ node: SCNNode, to mesh: inout Mesh3D) {
+        var materialFor: [String: Int] = [:]
+        var out = mesh
+        node.enumerateHierarchy { n, _ in
+            guard let g = n.geometry,
+                  let vertexSource = g.sources(for: .vertex).first,
+                  let positions = vectors(vertexSource) else { return }
+            let normals = g.sources(for: .normal).first.flatMap(vectors)
+            let m = n.simdWorldTransform
+            let linear = simd_float3x3(SIMD3(m.columns.0.x, m.columns.0.y, m.columns.0.z),
+                                       SIMD3(m.columns.1.x, m.columns.1.y, m.columns.1.z),
+                                       SIMD3(m.columns.2.x, m.columns.2.y, m.columns.2.z))
+            let color = rgba(g.firstMaterial?.diffuse.contents)
+            let key = "\(color.r),\(color.g),\(color.b),\(color.a)"
+            let material: Int
+            if let i = materialFor[key] {
+                material = i
+            } else {
+                material = out.materials.count
+                out.materials.append(Mesh3D.Material(name: "Component \(material)", baseColor: color, roughness: 0.6))
+                materialFor[key] = material
+            }
+            for element in g.elements where element.primitiveType == .triangles {
+                let idx = indices(element)
+                guard !idx.isEmpty else { continue }
+                var prim = Mesh3D.Primitive(material: material)
+                for (k, i) in idx.enumerated() where i < positions.count {
+                    let p4 = m * SIMD4(positions[i], 1)
+                    var nrm = normals.flatMap { i < $0.count ? linear * $0[i] : nil } ?? SIMD3(0, 1, 0)
+                    let len = simd_length(nrm)
+                    nrm = len > 0 ? nrm / len : SIMD3(0, 1, 0)
+                    prim.positions += [p4.x, p4.y, p4.z]
+                    prim.normals += [nrm.x, nrm.y, nrm.z]
+                    prim.uvs += [0, 0]
+                    prim.indices.append(UInt32(k))
+                }
+                if !prim.indices.isEmpty { out.primitives.append(prim) }
+            }
+        }
+        mesh = out
+    }
+
+    private static func rgba(_ contents: Any?) -> RGBA {
+        guard let c = (contents as? NSColor)?.usingColorSpace(.sRGB) else { return RGBA(0.5, 0.5, 0.5) }
+        return RGBA(Double(c.redComponent), Double(c.greenComponent), Double(c.blueComponent), Double(c.alphaComponent))
+    }
+
+    private static func vectors(_ s: SCNGeometrySource) -> [SIMD3<Float>]? {
+        guard s.usesFloatComponents, s.componentsPerVector >= 3, s.bytesPerComponent == 4 || s.bytesPerComponent == 8 else { return nil }
+        var out: [SIMD3<Float>] = []
+        out.reserveCapacity(s.vectorCount)
+        let bpc = s.bytesPerComponent
+        s.data.withUnsafeBytes { raw in
+            for i in 0..<s.vectorCount {
+                let base = s.dataOffset + i * s.dataStride
+                guard base + 3 * bpc <= raw.count else { break }
+                func c(_ k: Int) -> Float {
+                    bpc == 4 ? raw.loadUnaligned(fromByteOffset: base + k * 4, as: Float.self)
+                             : Float(raw.loadUnaligned(fromByteOffset: base + k * 8, as: Double.self))
+                }
+                out.append(SIMD3(c(0), c(1), c(2)))
+            }
+        }
+        return out
+    }
+
+    private static func indices(_ e: SCNGeometryElement) -> [Int] {
+        let count = e.primitiveCount * 3
+        let bpi = e.bytesPerIndex
+        var out: [Int] = []
+        out.reserveCapacity(count)
+        e.data.withUnsafeBytes { raw in
+            for k in 0..<count where (k + 1) * bpi <= raw.count {
+                switch bpi {
+                case 1: out.append(Int(raw.load(fromByteOffset: k, as: UInt8.self)))
+                case 2: out.append(Int(raw.loadUnaligned(fromByteOffset: k * 2, as: UInt16.self)))
+                case 4: out.append(Int(raw.loadUnaligned(fromByteOffset: k * 4, as: UInt32.self)))
+                default: out.append(Int(raw.loadUnaligned(fromByteOffset: k * 8, as: UInt64.self)))
+                }
+            }
+        }
+        return out
+    }
 }
