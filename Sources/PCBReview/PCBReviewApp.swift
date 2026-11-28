@@ -89,6 +89,22 @@ extension ThreeDArea {
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             if NSApp.keyWindow?.firstResponder is NSText { return event }
             let mods = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            // Arrow keys move the board, as in 2D; Shift moves further.
+            if mods.subtracting(.shift).isEmpty, (123...126).contains(event.keyCode) {
+                let step: CGFloat = mods.contains(.shift) ? 200 : 40
+                var dx: CGFloat = 0, dy: CGFloat = 0
+                switch event.keyCode {
+                case 123: dx = -step
+                case 124: dx = step
+                case 125: dy = step
+                default: dy = -step
+                }
+                // The view may be drawn mirrored (Flip X / Flip Y).
+                if controller.mirrorX { dx = -dx }
+                if controller.mirrorY { dy = -dy }
+                controller.pan(dx: dx, dy: dy)
+                return nil
+            }
             guard mods.contains(.command), !mods.contains(.option), !mods.contains(.control) else { return event }
             let keypadPlus: UInt16 = 69, keypadMinus: UInt16 = 78, digitOne: UInt16 = 18
             if event.keyCode == keypadPlus || (event.keyCode == digitOne && mods.contains(.shift))
