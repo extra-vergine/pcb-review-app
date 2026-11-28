@@ -61,7 +61,13 @@ public enum VRMLReader {
         /// self ∘ other (other applied first).
         func then(_ other: Affine) -> Affine {
             var r = [Float](repeating: 0, count: 9)
-            for i in 0..<3 { for j in 0..<3 { r[i * 3 + j] = (0..<3).reduce(0) { $0 + m[i * 3 + $1] * other.m[$1 * 3 + j] } } }
+            for i in 0..<3 {
+                for j in 0..<3 {
+                    var sum: Float = 0
+                    for n in 0..<3 { sum += m[i * 3 + n] * other.m[n * 3 + j] }
+                    r[i * 3 + j] = sum
+                }
+            }
             let (tx, ty, tz) = apply(other.t.0, other.t.1, other.t.2)
             return Affine(m: r, t: (tx, ty, tz))
         }
