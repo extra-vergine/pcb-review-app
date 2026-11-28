@@ -204,7 +204,7 @@ enum Exporter {
             case .svg:
                 var o = vectorOptions(model: model, viewport: viewport, scene: scene, dimensions: dims)
                 o.decimals = settings.svgDecimals
-                if settings.svgTextAsCurves { o.textToPath = textOutline }
+                if settings.svgTextAsCurves { o.textToPath = { @Sendable text, height in textOutline(text, height) } }
                 try SVGExporter.svg(board: input.board, options: o).write(to: url, atomically: true, encoding: .utf8)
             case .hpgl:
                 var o = vectorOptions(model: model, viewport: viewport, scene: scene, dimensions: dims)
