@@ -12,6 +12,8 @@ public struct Board: Sendable {
 
     public var layers: [Layer] = []
     public var stackup: [StackupLayer] = []
+    /// `(copper_finish ..)` from the stackup, e.g. `ENIG` or `HAL SnPb`.
+    public var copperFinish: String?
     /// Board thickness from `(general (thickness ..))`, mm.
     public var thickness: Double?
     /// The drill/place origin from `(setup (aux_axis_origin x y))`.

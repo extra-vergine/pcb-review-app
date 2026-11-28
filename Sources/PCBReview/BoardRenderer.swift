@@ -10,6 +10,8 @@ struct RenderOptions {
     /// Footprints: pads, pad holes and footprint graphics.
     var showComponents = true
     var highlight: NetHighlight?
+    /// The board's fill: a darkened preview of the mask colour.
+    var substrateColor = RenderOptions.substrate
     /// Fill the whole canvas with the background colour. Off for printing.
     var fillBackground = true
 
@@ -27,7 +29,7 @@ enum BoardRenderer {
         var c = ctx
         c.concatenate(t.affine)
 
-        c.fill(scene.substrate, with: .color(RenderOptions.substrate))
+        c.fill(scene.substrate, with: .color(o.substrateColor))
 
         let dim: Double = o.highlight?.net == nil ? 1 : 0.45
         var anyCopperDrawn = false

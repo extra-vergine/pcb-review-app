@@ -50,6 +50,19 @@ struct Guide: Identifiable, Equatable {
     var position: Double
 }
 
+enum ViewMode: String, CaseIterable {
+    case twoD = "2D", threeD = "3D"
+}
+
+/// Colours for the board preview: solder mask, base material, silkscreen and copper finish.
+struct BoardLook: Equatable {
+    var mask: RGBA
+    var material: RGBA
+    var silk: RGBA
+    var finish: RGBA
+    var hasMask: Bool
+}
+
 /// Which panel the right-hand side shows.
 enum SidePanel: String, CaseIterable {
     case findings = "Findings", inspector = "Inspector"
@@ -153,6 +166,41 @@ final class BoardModel: ObservableObject {
     @Published var findingFilter: FindingFilter = .all
     @Published var sidePanel: SidePanel = .findings
     @Published var focusRequest: FocusRequest?
+
+    // MARK: View mode and board look
+
+    @Published var viewMode: ViewMode = .twoD
+    /// "file" for the colour in the board file, else a `BoardAppearance.maskOptions` id.
+    @Published var maskChoice: String = UserDefaults.standard.string(forKey: "maskChoice") ?? "file" {
+        didSet { UserDefaults.standard.set(maskChoice, forKey: "maskChoice") }
+    }
+    /// "file" for the material in the board file, else a `BoardAppearance.materialOptions` id.
+    @Published var materialChoice: String = UserDefaults.standard.string(forKey: "materialChoice") ?? "file" {
+        didSet { UserDefaults.standard.set(materialChoice, forKey: "materialChoice") }
+    }
+
+    static let fileChoice = "file"
+
+    /// The colours the board is previewed in.
+    var look: BoardLook {
+        let board = input?.board
+        let maskOption = BoardAppearance.maskOptions.first { $0.id == maskChoice }
+        let mask = maskOption?.color ?? board?.fileMaskColor ?? BoardAppearance.maskOptions[0].color
+        let hasMask = maskOption?.id != "none"
+        let material = BoardAppearance.materialOptions.first { $0.id == materialChoice }?.color
+            ?? BoardAppearance.materialColor(board?.fileCoreMaterial)
+        // Fabs print black silkscreen on white and yellow masks, white on the rest.
+        var silk = board?.fileSilkColor ?? RGBA(0.95, 0.95, 0.93)
+        if maskOption != nil {
+            silk = ["white", "yellow"].contains(maskChoice) ? RGBA(0.08, 0.08, 0.08) : RGBA(0.95, 0.95, 0.93)
+        }
+        return BoardLook(mask: mask, material: material, silk: silk,
+                         finish: BoardAppearance.finishColor(board?.copperFinish), hasMask: hasMask)
+    }
+
+    /// The mask colour the file sets, for the menu, e.g. "Black".
+    var fileMaskName: String { input?.board.stackup.first { $0.name == "F.Mask" }?.color ?? "not set" }
+    var fileMaterialName: String { input?.board.fileCoreMaterial ?? "not set" }
     /// Findings from KiCad's own DRC (`kicad-cli`), nil until it has run for this board.
     @Published private(set) var drcFindings: [Finding]?
     @Published private(set) var isRunningDRC = false
@@ -531,8 +579,12 @@ final class BoardModel: ObservableObject {
 
     /// The options the canvas draws with right now.
     var renderOptions: RenderOptions {
-        RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
-                      showVias: showVias, showComponents: showComponents, highlight: highlight)
+        let l = look
+        let base = l.hasMask ? l.mask : l.material
+        let substrate = Color(.sRGB, red: base.r * 0.42 + 0.03, green: base.g * 0.42 + 0.03, blue: base.b * 0.42 + 0.03, opacity: 1)
+        return RenderOptions(layers: drawnLayers, colors: renderColors, showZoneFills: showZoneFills,
+                             showVias: showVias, showComponents: showComponents, highlight: highlight,
+                             substrateColor: substrate)
     }
 
     private static let colorsKey = "layerColors"

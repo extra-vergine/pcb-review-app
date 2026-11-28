@@ -192,6 +192,12 @@ enum Exporter {
 
     static func writeUSDZ(_ mesh: Mesh3D, images: [NSImage], to url: URL) throws {
         let scn = SCNScene()
+        scn.rootNode.addChildNode(sceneNode(mesh, images: images))
+        guard scn.write(to: url, options: nil, delegate: nil, progressHandler: nil) else { throw ExportError.writeFailed }
+    }
+
+    /// The mesh as a SceneKit node, one child per material.
+    static func sceneNode(_ mesh: Mesh3D, images: [NSImage], lighting: SCNMaterial.LightingModel = .physicallyBased) -> SCNNode {
         let root = SCNNode()
         root.name = mesh.name
         for p in mesh.primitives where !p.indices.isEmpty {
@@ -206,7 +212,7 @@ enum Exporter {
             let m = mesh.materials[p.material]
             let material = SCNMaterial()
             material.name = m.name
-            material.lightingModel = .physicallyBased
+            material.lightingModel = lighting
             if let i = m.image, i < images.count {
                 material.diffuse.contents = images[i]
             } else {
@@ -219,8 +225,7 @@ enum Exporter {
             node.name = m.name
             root.addChildNode(node)
         }
-        scn.rootNode.addChildNode(root)
-        guard scn.write(to: url, options: nil, delegate: nil, progressHandler: nil) else { throw ExportError.writeFailed }
+        return root
     }
 
     // MARK: Helpers

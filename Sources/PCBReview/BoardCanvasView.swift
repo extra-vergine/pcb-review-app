@@ -36,18 +36,17 @@ struct BoardCanvasView: View {
             }
             .onAppear {
                 viewport.size = geo.size
-                fit()
+                if viewport.autoFit { fit() }
                 installKeyMonitor()
             }
             .onDisappear(perform: removeKeyMonitor)
             .onChange(of: geo.size) { newSize in
-                let first = viewport.size == .zero
                 viewport.size = newSize
-                if first { fit() }
+                if viewport.autoFit { fit() }
             }
             .onChange(of: model.fitRequest) { _ in fit() }
             .onChange(of: model.focusRequest) { r in
-                if let r { viewport.fit(r.rect) }
+                if let r { viewport.fit(r.rect, auto: false) }
             }
         }
         .coordinateSpace(name: Self.space)

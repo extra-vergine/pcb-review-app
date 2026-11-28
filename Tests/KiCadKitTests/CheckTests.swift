@@ -185,3 +185,17 @@ final class KiCadDRCReportTests: XCTestCase {
         XCTAssertThrowsError(try KiCadDRCReport.findings(from: Data("{\"coordinate_units\": \"mils\"}".utf8), board: board))
     }
 }
+
+final class AppearanceTests: XCTestCase {
+    func testFileColours() {
+        let b = BoardParserTests.input.board
+        XCTAssertEqual(b.fileMaskColor, BoardAppearance.kicadColor("Black"))
+        XCTAssertEqual(b.fileSilkColor, BoardAppearance.kicadColor("White"))
+        XCTAssertEqual(b.fileCoreMaterial, "FR4")
+        XCTAssertEqual(b.copperFinish, "ENIG")
+        XCTAssertEqual(BoardAppearance.kicadColor("#FF000080"), RGBA(1, 0, 0, 128.0 / 255))
+        XCTAssertEqual(BoardAppearance.kicadColor("#00FF00"), RGBA(0, 1, 0))
+        XCTAssertNil(BoardAppearance.kicadColor("#XYZ"))
+        XCTAssertEqual(Set(BoardAppearance.maskOptions.map(\.id)).count, BoardAppearance.maskOptions.count)
+    }
+}

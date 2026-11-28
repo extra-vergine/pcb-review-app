@@ -5,7 +5,36 @@ struct LayerPanel: View {
     @EnvironmentObject var model: BoardModel
 
     var body: some View {
+        VStack(spacing: 0) {
+            Group {
+                if model.viewMode == .twoD { NavigatorView() } else { ViewCubeView() }
+            }
+            .frame(height: 170)
+            .padding(8)
+            list
+        }
+    }
+
+    private var list: some View {
         List {
+            Section("Board") {
+                Picker("Origin", selection: $model.originCorner) {
+                    Text("File origin").tag(OriginCorner?.none)
+                    ForEach(OriginCorner.allCases, id: \.self) { c in
+                        Text(c.rawValue.capitalized).tag(OriginCorner?.some(c))
+                    }
+                }
+                Picker("Board", selection: $model.materialChoice) {
+                    Text("From file (\(model.fileMaterialName))").tag(BoardModel.fileChoice)
+                    Divider()
+                    ForEach(BoardAppearance.materialOptions) { Text($0.label).tag($0.id) }
+                }
+                Picker("Mask", selection: $model.maskChoice) {
+                    Text("From file (\(model.fileMaskName))").tag(BoardModel.fileChoice)
+                    Divider()
+                    ForEach(BoardAppearance.maskOptions) { Text($0.label).tag($0.id) }
+                }
+            }
             Section("Copper") {
                 ForEach(model.layerList.filter(\.isCopper)) { row($0) }
             }
@@ -27,11 +56,14 @@ struct LayerPanel: View {
                 Toggle("Mounting holes, vertical", isOn: $model.showHoleSpacingY)
             }
             Section {
-                HStack {
-                    Button("Copper only") { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } }
-                    Button("Defaults") { model.showOnly(\.visibleByDefault) }
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack {
+                        Button("Copper only") { model.showOnly { $0.isCopper || $0.name == "Edge.Cuts" } }
+                        Button("Defaults") { model.showOnly(\.visibleByDefault) }
+                    }
+                    .controlSize(.small)
+                    FlipButtons()
                 }
-                .controlSize(.small)
             }
         }
         .listStyle(.sidebar)
@@ -41,7 +73,7 @@ struct LayerPanel: View {
     /// clicking the colour swatch opens the colour picker for it.
     private func row(_ layer: LayerInfo) -> some View {
         let active = model.isActive(layer.name)
-        return HStack(spacing: 7) {
+        return HStack(spacing: 10) {
             Button {
                 model.toggle(layer.name)
             } label: {
@@ -52,12 +84,7 @@ struct LayerPanel: View {
             .buttonStyle(.plain)
             .help(active ? "Deactivate \(layer.name)" : "Activate \(layer.name)")
 
-            ColorPicker("", selection: Binding(
-                get: { model.color(of: layer.name) },
-                set: { model.setColor($0, for: layer.name) }
-            ), supportsOpacity: false)
-            .labelsHidden()
-            .frame(width: 26, height: 16)
+            ColorSwatch(color: model.color(of: layer.name)) { model.setColor($0, for: layer.name) }
             .help("Choose a colour for \(layer.name)")
             .contextMenu {
                 Button("Reset Colour") { model.resetColor(for: layer.name) }
@@ -85,10 +112,23 @@ struct LayerTabBar: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            tabs
+            if model.viewMode == .twoD {
+                tabs
+            } else {
+                Text("3D view: drag to turn, scroll or pinch to zoom, two fingers or ⌥-drag to pan")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.horizontal, 12)
+                Spacer()
+            }
             Divider().frame(height: 22)
-            FlipButtons()
-                .padding(.horizontal, 8)
+            Picker("", selection: $model.viewMode) {
+                ForEach(ViewMode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .frame(width: 90)
+            .padding(.horizontal, 8)
+            .help("Switch between the 2D and 3D views")
         }
         .background(.bar)
     }
@@ -154,7 +194,6 @@ struct FlipButtons: View {
         .toggleStyle(.button)
         .controlSize(.small)
         .labelStyle(.titleAndIcon)
-        .background(.bar)
     }
 }
 

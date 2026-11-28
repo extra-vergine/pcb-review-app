@@ -47,6 +47,9 @@ final class Viewport: ObservableObject {
     @Published var size: CGSize = .zero
     /// Cursor position on the board, if the cursor is over the canvas.
     @Published var hover: Point?
+    /// True while the view shows "zoom to fit": it then refits when the window
+    /// changes size (also while the window first opens). Panning or zooming turns it off.
+    var autoFit = true
 
     static let minScale: CGFloat = 0.5
     static let maxScale: CGFloat = 3000
@@ -59,12 +62,14 @@ final class Viewport: ObservableObject {
     func toScreen(_ p: Point) -> CGPoint { transform.screen(p) }
 
     func pan(by d: CGSize) {
+        autoFit = false
         transform.offset.width += d.width
         transform.offset.height += d.height
     }
 
     /// Zooms keeping the board point under `location` in place.
     func zoom(by factor: CGFloat, at location: CGPoint) {
+        autoFit = false
         let newScale = min(max(transform.scale * factor, Self.minScale), Self.maxScale)
         let k = newScale / transform.scale
         var t = transform
@@ -79,9 +84,28 @@ final class Viewport: ObservableObject {
         zoom(by: factor, at: center)
     }
 
-    func fit(_ b: Rect) {
+    /// Shows `b`. `auto` keeps it fitted while the window resizes (zoom to fit), and is off for zooming to a finding.
+    func fit(_ b: Rect, auto: Bool = true) {
         transform = .fitting(b, in: size, flipX: transform.flipX, flipY: transform.flipY)
+        autoFit = auto
     }
+
+    /// Moves the view so that board point `p` is in the centre of the canvas.
+    func center(on p: Point) {
+        autoFit = false
+        let c = center
+        transform.offset = CGSize(width: c.x - CGFloat(p.x) * transform.sx, height: c.y - CGFloat(p.y) * transform.sy)
+    }
+
+    /// The board area the canvas shows right now.
+    var visibleBoardRect: Rect? {
+        guard size.width > 0, size.height > 0 else { return nil }
+        let corners = [CGPoint.zero, CGPoint(x: size.width, y: 0), CGPoint(x: 0, y: size.height), CGPoint(x: size.width, y: size.height)]
+        return Rect.enclosing(corners.map(transform.board))
+    }
+
+    /// The board point at the centre of the canvas.
+    var centerPoint: Point { transform.board(center) }
 
     /// Mirrors the view, keeping the board point at the centre of the canvas in place.
     func setFlip(x: Bool? = nil, y: Bool? = nil) {

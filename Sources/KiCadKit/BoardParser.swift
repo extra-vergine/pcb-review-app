@@ -35,6 +35,7 @@ public enum BoardParser {
         board.thickness = root.child("general")?.value("thickness")
         board.layers = parseLayers(root.child("layers"))
         board.stackup = parseStackup(root.child("setup")?.child("stackup"))
+        board.copperFinish = root.child("setup")?.child("stackup")?.text("copper_finish")
         board.auxAxisOrigin = root.child("setup")?.point("aux_axis_origin")
         board.gridOrigin = root.child("setup")?.point("grid_origin")
 
@@ -81,7 +82,7 @@ public enum BoardParser {
         return node.children("layer").compactMap { l in
             guard let name = l.atom(at: 1) else { return nil }
             return StackupLayer(name: name, type: l.text("type") ?? "", thickness: l.value("thickness"),
-                                material: l.text("material"), epsilonR: l.value("epsilon_r"))
+                                material: l.text("material"), epsilonR: l.value("epsilon_r"), color: l.text("color"))
         }
     }
 

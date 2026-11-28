@@ -8,12 +8,14 @@ struct PCBReviewApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = BoardModel()
     @StateObject private var viewport = Viewport()
+    @StateObject private var threeD = ThreeDController()
 
     var body: some Scene {
         WindowGroup("PCB Review") {
             ContentView()
                 .environmentObject(model)
                 .environmentObject(viewport)
+                .environmentObject(threeD)
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     // `swift run PCBReview path/to/board.kicad_pcb` opens that board.
@@ -134,7 +136,11 @@ struct ContentView: View {
                     VStack(spacing: 0) {
                         LayerTabBar()
                         Divider()
-                        BoardCanvasView(board: input.board)
+                        if model.viewMode == .twoD {
+                            BoardCanvasView(board: input.board)
+                        } else {
+                            ThreeDArea()
+                        }
                     }
                     .frame(minWidth: 400)
                     SidePanelView()
@@ -161,6 +167,20 @@ struct ContentView: View {
         } message: {
             Text(model.errorMessage ?? "")
         }
+    }
+}
+
+/// The 3D view, rebuilt when the board, its look or the Components option changes.
+struct ThreeDArea: View {
+    @EnvironmentObject var model: BoardModel
+    @EnvironmentObject var controller: ThreeDController
+
+    var body: some View {
+        Board3DView(controller: controller)
+            .onAppear { controller.load(model) }
+            .onChange(of: model.look) { _ in controller.load(model) }
+            .onChange(of: model.showComponents) { _ in controller.load(model) }
+            .onChange(of: model.url) { _ in controller.load(model) }
     }
 }
 
