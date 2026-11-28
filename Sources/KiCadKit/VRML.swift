@@ -280,6 +280,17 @@ public enum ModelLibrary {
         return out
     }
 
+    /// The model path as a full file path, with every variable filled in, or nil if one is unknown.
+    public static func expandedPath(_ path: String, boardFolder: URL, variables: [String: String]) -> String? {
+        var vars = ProcessInfo.processInfo.environment
+        for (k, v) in variables { vars[k] = v }
+        vars["KIPRJMOD"] = boardFolder.path
+        var expanded = expand(path.trimmingCharacters(in: .whitespaces), vars)
+        if expanded.hasPrefix("~") { expanded = (expanded as NSString).expandingTildeInPath }
+        guard !expanded.contains("${"), !expanded.contains("$(") else { return nil }
+        return expanded.hasPrefix("/") ? expanded : boardFolder.appendingPathComponent(expanded).path
+    }
+
     /// The VRML file for a model path, or nil. The path may use `${KIPRJMOD}`, KiCad's
     /// library variables, the user's own path variables or environment variables, or be
     /// absolute or relative to the board. A `.wrl` next to a `.step` is used, as KiCad's
@@ -292,13 +303,8 @@ public enum ModelLibrary {
             let rest = String(trimmed[r.upperBound...])
             candidates = roots.map { $0 + rest }
         }
-        var vars = ProcessInfo.processInfo.environment
-        for (k, v) in variables ?? userPathVariables { vars[k] = v }
-        vars["KIPRJMOD"] = boardFolder.path
-        var expanded = expand(trimmed, vars)
-        if expanded.hasPrefix("~") { expanded = (expanded as NSString).expandingTildeInPath }
-        if !expanded.contains("${") && !expanded.contains("$(") {
-            candidates.append(expanded.hasPrefix("/") ? expanded : boardFolder.appendingPathComponent(expanded).path)
+        if let full = expandedPath(trimmed, boardFolder: boardFolder, variables: variables ?? userPathVariables) {
+            candidates.append(full)
         }
         let fm = FileManager.default
         for c in candidates {

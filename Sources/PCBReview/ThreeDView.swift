@@ -713,6 +713,29 @@ enum ComponentModels {
                 }
             }
         }
+        // Models in iCloud Drive may be placeholders that are not downloaded yet: fetch them first.
+        if missing {
+            let fm = FileManager.default
+            var pending: [String] = []
+            for fp in footprints {
+                for m in fp.models where !m.hidden && direct[m.path] == nil {
+                    guard let full = ModelLibrary.expandedPath(m.path, boardFolder: folder, variables: variables),
+                          !fm.fileExists(atPath: full) else { continue }
+                    let dir = (full as NSString).deletingLastPathComponent, name = (full as NSString).lastPathComponent
+                    if fm.fileExists(atPath: dir + "/." + name + ".icloud") {
+                        try? fm.startDownloadingUbiquitousItem(at: URL(fileURLWithPath: full))
+                        pending.append(full)
+                    }
+                }
+            }
+            if !pending.isEmpty {
+                progress("Downloading \(pending.count) 3D models from iCloud Drive…")
+                let deadline = Date().addingTimeInterval(60)
+                while Date() < deadline, pending.contains(where: { !fm.fileExists(atPath: $0) }) {
+                    Thread.sleep(forTimeInterval: 0.5)
+                }
+            }
+        }
         var converted: [String: URL] = [:]
         var conversionLog: String?
         func stillMissing() -> [String] {
@@ -729,7 +752,17 @@ enum ComponentModels {
                 (converted, conversionLog) = ModelConversion.convert(cli: cli, board: boardURL, force: true)
             }
         }
-        let unresolved = Array(Set(stillMissing().map { ($0 as NSString).lastPathComponent })).sorted()
+        let missingPaths = stillMissing()
+        let unresolved = Array(Set(missingPaths.map { ($0 as NSString).lastPathComponent })).sorted()
+        // Say where the first missing model was looked for, and whether the file is there.
+        var hint = ""
+        if let first = missingPaths.first, let full = ModelLibrary.expandedPath(first, boardFolder: folder, variables: variables) {
+            hint = FileManager.default.fileExists(atPath: full)
+                ? " (the file is there, but kicad-cli could not convert it)"
+                : " (looked for " + full + ")"
+        } else if let first = missingPaths.first {
+            hint = " (" + first + " uses a path variable this Mac does not define)"
+        }
 
         // Converted models: find the file unit by comparing model and footprint sizes.
         var raw: [URL: [ModelPart]] = [:]
@@ -788,7 +821,7 @@ enum ComponentModels {
         }
         if !unresolved.isEmpty {
             let names = unresolved.prefix(4).joined(separator: ", ") + (unresolved.count > 4 ? " and \(unresolved.count - 4) more" : "")
-            summary += ". Not found: " + names
+            summary += ". Not found: " + names + hint
         }
         return Result(node: root, summary: summary)
     }
