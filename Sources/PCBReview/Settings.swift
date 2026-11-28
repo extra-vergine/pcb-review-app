@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import KiCadKit
 
 /// Settings keys, stored in UserDefaults through @AppStorage.
 enum AppSettings {
@@ -13,6 +14,7 @@ enum AppSettings {
     static let zoomSpeed = "3d.zoomSpeed"           // Double, 0.25 ... 4
     static let orbitSpeed = "3d.orbitSpeed"         // Double, 0.25 ... 4
     static let homeView = "3d.homeView"             // HomeView
+    static let rulerUnits = "rulerUnits"            // LengthUnit raw value
     static let orthographicDefault = "3d.orthographicDefault" // Bool, false: perspective
     static let shadowDefault = "3d.shadowDefault"   // Bool, true
     static let reflectionDefault = "3d.reflectionDefault" // Bool, false
@@ -87,18 +89,31 @@ struct SettingsView: View {
     @AppStorage(AppSettings.orthographicDefault) private var orthographicDefault = false
     @AppStorage(AppSettings.shadowDefault) private var shadowDefault = true
     @AppStorage(AppSettings.reflectionDefault) private var reflectionDefault = false
+    @AppStorage(AppSettings.rulerUnits) private var rulerUnits = LengthUnit.mm.rawValue
 
     var body: some View {
         TabView {
             Form {
-                Picker("Appearance", selection: $appearance) {
-                    ForEach(AppearanceChoice.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                Section("Appearance") {
+                    Picker("Appearance", selection: $appearance) {
+                        ForEach(AppearanceChoice.allCases) { Text($0.rawValue).tag($0.rawValue) }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: appearance) { _ in AppSettings.applyAppearance() }
+                    Text("System follows the Mac's Light or Dark setting.").font(.caption).foregroundStyle(.secondary)
                 }
-                .pickerStyle(.segmented)
-                .onChange(of: appearance) { _ in AppSettings.applyAppearance() }
-                Text("System follows the Mac's Light or Dark setting.").font(.caption).foregroundStyle(.secondary)
+                Section("Rulers") {
+                    Picker("Default units", selection: $rulerUnits) {
+                        Text("Millimetres (mm)").tag(LengthUnit.mm.rawValue)
+                        Text("Inches (in)").tag(LengthUnit.inch.rawValue)
+                        Text("Points (pt)").tag(LengthUnit.point.rawValue)
+                        Text("Mils (mil)").tag(LengthUnit.mil.rawValue)
+                    }
+                    Text("Used when the app starts. View › Switch Units changes them for the current session.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
-            .padding(20)
+            .formStyle(.grouped)
             .tabItem { Label("General", systemImage: "gearshape") }
 
             Form {
@@ -120,7 +135,7 @@ struct SettingsView: View {
                     Slider(value: $orbitSpeed, in: 0.25...4) { Text("Rotate speed") }
                 }
             }
-            .padding(20)
+            .formStyle(.grouped)
             .tabItem { Label("3D Input", systemImage: "rotate.3d") }
 
             Form {
@@ -138,10 +153,10 @@ struct SettingsView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
-            .padding(20)
+            .formStyle(.grouped)
             .tabItem { Label("3D View", systemImage: "cube") }
         }
-        .frame(width: 460, height: 440)
+        .frame(width: 620, height: 560)
     }
 
     private func gesturePicker(_ title: String, _ value: Binding<String>, _ options: [Gesture3D]) -> some View {

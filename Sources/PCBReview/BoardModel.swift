@@ -122,7 +122,7 @@ final class BoardModel: ObservableObject {
     @Published var showShadow = AppSettings.flag(AppSettings.shadowDefault, default: true)
     /// A reflection of the board on the ground in the 3D view.
     @Published var showReflection = AppSettings.flag(AppSettings.reflectionDefault, default: false)
-    @Published var units: LengthUnit = .mm
+    @Published var units: LengthUnit = LengthUnit(rawValue: UserDefaults.standard.string(forKey: AppSettings.rulerUnits) ?? "") ?? .mm
 
     /// The origin corner picked by clicking the origin marker; nil means the board file's own origin.
     @Published var originCorner: OriginCorner?
