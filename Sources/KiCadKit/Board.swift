@@ -68,8 +68,26 @@ public struct Footprint: Sendable {
     /// Rule areas and zones that belong to the footprint.
     public var zones: [Zone]
     public var uuid: String?
+    /// 3D models attached to the footprint.
+    public var models: [FootprintModel] = []
 
     public var isBottom: Bool { layer == "B.Cu" }
+}
+
+/// A `(model ...)` entry of a footprint: the 3D model file and how it is placed.
+public struct FootprintModel: Equatable, Sendable {
+    /// The path as written, e.g. `${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step`.
+    public var path: String
+    /// Offset in mm (x right, y up, z up from the board).
+    public var offset: (x: Double, y: Double, z: Double)
+    public var scale: (x: Double, y: Double, z: Double)
+    /// Rotation in degrees about x, y and z.
+    public var rotation: (x: Double, y: Double, z: Double)
+    public var hidden: Bool
+
+    public static func == (a: Self, b: Self) -> Bool {
+        a.path == b.path && a.offset == b.offset && a.scale == b.scale && a.rotation == b.rotation && a.hidden == b.hidden
+    }
 }
 
 public struct Pad: Sendable {

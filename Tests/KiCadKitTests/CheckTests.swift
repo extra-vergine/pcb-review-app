@@ -199,3 +199,44 @@ final class AppearanceTests: XCTestCase {
         XCTAssertEqual(Set(BoardAppearance.maskOptions.map(\.id)).count, BoardAppearance.maskOptions.count)
     }
 }
+
+final class ModelTests: XCTestCase {
+    func testFootprintModels() throws {
+        let b = BoardParserTests.input.board
+        let withModels = b.footprints.filter { !$0.models.isEmpty }
+        XCTAssertGreaterThan(withModels.count, 80)
+        let r = try XCTUnwrap(withModels.first { $0.models[0].path.hasSuffix("R_0603_1608Metric.step") })
+        XCTAssertEqual(r.models[0].scale.x, 1)
+        XCTAssertEqual(r.models[0].offset.z, 0)
+    }
+
+    func testVRML() throws {
+        let wrl = """
+        #VRML V2.0 utf8
+        Shape { appearance Appearance { material DEF BODY Material { diffuseColor 0.1 0.2 0.3 transparency 0.5 } }
+          geometry IndexedFaceSet { coord Coordinate { point [ 0 0 0, 1 0 0, 1 1 0, 0 1 0 ] } coordIndex [ 0, 1, 2, 3, -1 ] } }
+        Transform { translation 0 0 1 children [
+          Shape { appearance Appearance { material USE BODY }
+            geometry IndexedFaceSet { coord Coordinate { point [ 0 0 0, 1 0 0, 0 1 0 ] } coordIndex [ 0 1 2 -1 ] } } ] }
+        """
+        let parts = try VRMLReader.parse(wrl)
+        XCTAssertEqual(parts.count, 2)
+        XCTAssertEqual(parts[0].indices, [0, 1, 2, 0, 2, 3])
+        XCTAssertEqual(parts[0].positions[3], 2.54, accuracy: 1e-5)
+        XCTAssertEqual(parts[0].color.b, 0.3, accuracy: 1e-6)
+        XCTAssertEqual(parts[0].color.a, 0.5, accuracy: 1e-6)
+        XCTAssertEqual(parts[1].color.g, 0.2, accuracy: 1e-6, "USE of a DEF material")
+        XCTAssertEqual(parts[1].positions[2], 2.54, accuracy: 1e-5, "translated by 1 unit in z")
+    }
+
+    func testResolve() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("models-\(UUID().uuidString)")
+        let shapes = dir.appendingPathComponent("Resistor_SMD.3dshapes")
+        try FileManager.default.createDirectory(at: shapes, withIntermediateDirectories: true)
+        try Data("#VRML V2.0 utf8".utf8).write(to: shapes.appendingPathComponent("R_0603_1608Metric.wrl"))
+        let url = ModelLibrary.resolve("${KICAD10_3DMODEL_DIR}/Resistor_SMD.3dshapes/R_0603_1608Metric.step",
+                                       boardFolder: dir, roots: [dir.path])
+        XCTAssertEqual(url?.lastPathComponent, "R_0603_1608Metric.wrl")
+        XCTAssertNil(ModelLibrary.resolve("${KIPRJMOD}/3dmodels/missing.step", boardFolder: dir, roots: []))
+    }
+}

@@ -141,7 +141,18 @@ public enum BoardParser {
             }
         }
 
-        return Footprint(
+        let models: [FootprintModel] = node.children("model").compactMap { m in
+            guard let path = m.atom(at: 1) else { return nil }
+            func xyz(_ name: String, _ d: Double) -> (x: Double, y: Double, z: Double) {
+                let n = m.child(name)?.child("xyz")
+                return (n?.double(at: 1) ?? d, n?.double(at: 2) ?? d, n?.double(at: 3) ?? d)
+            }
+            let hidden = m.items.contains { $0.atom == "hide" } || m.child("hide")?.atom(at: 1) == "yes"
+                || m.child("show")?.atom(at: 1) == "no"
+            return FootprintModel(path: path, offset: xyz("offset", 0), scale: xyz("scale", 1), rotation: xyz("rotate", 0), hidden: hidden)
+        }
+
+        var footprint = Footprint(
             libraryID: node.atom(at: 1) ?? "",
             reference: reference,
             value: props["Value"] ?? "",
@@ -156,6 +167,8 @@ public enum BoardParser {
             zones: zones,
             uuid: node.text("uuid") ?? node.text("tstamp")
         )
+        footprint.models = models
+        return footprint
     }
 
     /// Texts (fields and `fp_text`) of a footprint, in board coordinates.
