@@ -120,6 +120,10 @@ final class BoardModel: ObservableObject {
     @Published var showRulers = true
     /// A shadow under the board in the 3D view.
     @Published var showShadow = AppSettings.flag(AppSettings.shadowDefault, default: true)
+    /// 3D: copper layers pulled apart, with vias as barrels between them.
+    @Published var expandLayers = false {
+        didSet { if expandLayers && viewMode != .threeD { viewMode = .threeD } }
+    }
     /// A reflection of the board on the ground in the 3D view.
     @Published var showReflection = AppSettings.flag(AppSettings.reflectionDefault, default: false)
     @Published var units: LengthUnit = LengthUnit(rawValue: UserDefaults.standard.string(forKey: AppSettings.rulerUnits) ?? "") ?? .mm

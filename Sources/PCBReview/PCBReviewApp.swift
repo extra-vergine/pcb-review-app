@@ -277,6 +277,10 @@ struct ThreeDArea: View {
         .onChange(of: model.originCorner) { _ in controller.load(model) }
         .onChange(of: model.showShadow) { _ in controller.load(model) }
         .onChange(of: model.showReflection) { _ in controller.load(model) }
+        .onChange(of: model.expandLayers) { _ in
+            controller.load(model)
+            controller.fit()
+        }
         .onChange(of: model.dimensions) { _ in controller.load(model) }
         .onChange(of: model.units) { _ in controller.load(model) }
         .onChange(of: model.backgroundColor) { _ in controller.load(model) }

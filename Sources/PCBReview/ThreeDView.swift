@@ -161,6 +161,7 @@ final class ThreeDController: ObservableObject {
         setDimensions(model.dimensions.map { (dimension: $0, label: units.format($0.length)) },
                       color: NSColor(model.color(of: BoardModel.drawingsLayer)))
         setBackground(NSColor(model.backgroundColor))
+        setExpanded(model.expandLayers ? model : nil)
     }
 
     private func loadComponents(_ model: BoardModel) {
@@ -183,7 +184,7 @@ final class ThreeDController: ObservableObject {
                 guard self.componentsKey == key else { return }
                 self.scene.rootNode.addChildNode(result.node)
                 self.componentsNode = result.node
-                result.node.isHidden = !model.showComponents
+                result.node.isHidden = !model.showComponents || model.expandLayers
                 self.modelStatus = result.summary
             }
         }
@@ -228,7 +229,7 @@ final class ThreeDController: ObservableObject {
     /// fill the view from the current direction, with a small margin.
     private func fitToBoard() {
         var lo = SIMD3<Float>(repeating: .infinity), hi = SIMD3<Float>(repeating: -.infinity)
-        for node in [boardNode, componentsNode] {
+        for node in [boardNode, componentsNode, expandedNode] {
             guard let node, !node.isHidden else { continue }
             let (a, b) = node.boundingBox
             guard a.x <= b.x else { continue }
@@ -338,6 +339,102 @@ final class ThreeDController: ObservableObject {
         reflectionFloor.geometry?.firstMaterial?.diffuse.contents = color
     }
     private(set) var background = NSColor(red: 0.07, green: 0.08, blue: 0.09, alpha: 1)
+
+    // MARK: Expanded layers
+
+    private var expandedNode: SCNNode?
+    private var expandedKey: String?
+    /// Space between copper layers in the expanded view, metres.
+    static let layerGap: Float = 0.004
+
+    /// Expand layers: each copper layer as its own sheet, a few millimetres apart,
+    /// with vias and plated holes as barrels between the layers they connect.
+    /// The board, components, dimensions and origin are hidden meanwhile.
+    private func setExpanded(_ model: BoardModel?) {
+        let on = model != nil
+        boardNode?.isHidden = on
+        if on { componentsNode?.isHidden = true }
+        dimensionsNode?.isHidden = on
+        originNode?.isHidden = on
+        guard let model, let input = model.input, let scene2D = model.scene, let bounds = input.board.outlineBounds else {
+            expandedNode?.removeFromParentNode()
+            expandedNode = nil
+            expandedKey = nil
+            return
+        }
+        let board = input.board
+        let copper = board.copperLayers.map(\.name)
+        let visible = model.visibleLayers
+        let key = "\(model.url?.path ?? "")|\(visible.sorted())|\(model.showZoneFills)|\(model.renderColors.count)|\(copper.map { model.color(of: $0).description })"
+        guard key != expandedKey else { return }
+        expandedNode?.removeFromParentNode()
+        expandedKey = key
+
+        let root = SCNNode()
+        let n = copper.count
+        func height(_ layer: String) -> Float? {
+            copper.firstIndex(of: layer).map { Float(n - 1 - $0) * Self.layerGap }
+        }
+        let pxPerMM = min(16, 3072 / max(bounds.width, bounds.height))
+        let size = CGSize(width: bounds.width * pxPerMM, height: bounds.height * pxPerMM)
+        let t = ViewTransform.fitting(bounds, in: size, margin: 1)
+        for (i, layer) in copper.enumerated() where visible.contains(layer) {
+            var o = model.renderOptions
+            o.layers = [layer]
+            o.highlight = nil
+            o.fillBackground = false
+            o.showVias = false
+            o.substrateColor = Color.white.opacity(0.08)
+            let opts = o
+            let renderer = ImageRenderer(content: Canvas { ctx, sz in
+                BoardRenderer.draw(scene2D, in: ctx, size: sz, transform: t, options: opts)
+            }.frame(width: size.width, height: size.height))
+            renderer.scale = 1
+            guard let image = renderer.nsImage else { continue }
+            let plane = SCNPlane(width: CGFloat(bounds.width / 1000), height: CGFloat(bounds.height / 1000))
+            let m = SCNMaterial()
+            m.lightingModel = .constant
+            m.diffuse.contents = image
+            m.isDoubleSided = true
+            m.writesToDepthBuffer = false
+            m.transparencyMode = .aOne
+            plane.materials = [m]
+            let node = SCNNode(geometry: plane)
+            node.name = layer
+            node.simdEulerAngles = SIMD3(-.pi / 2, 0, 0)
+            node.simdPosition = SIMD3(0, Float(n - 1 - i) * Self.layerGap, 0)
+            node.renderingOrder = i
+            root.addChildNode(node)
+        }
+
+        // Barrels: vias between their end layers, plated holes through all layers.
+        func barrel(at p: Point, radius: Double, from a: Float, to b: Float, color: NSColor) {
+            let h = max(abs(b - a), 0.0001)
+            let cyl = SCNCylinder(radius: CGFloat(radius / 1000), height: CGFloat(h))
+            cyl.radialSegmentCount = 16
+            let m = SCNMaterial()
+            m.lightingModel = .blinn
+            m.diffuse.contents = color
+            cyl.materials = [m]
+            let node = SCNNode(geometry: cyl)
+            node.simdPosition = SIMD3(Float((p.x - boardCenter.x) / 1000), (a + b) / 2, Float((p.y - boardCenter.y) / 1000))
+            root.addChildNode(node)
+        }
+        let viaColor = NSColor(srgbRed: 0.85, green: 0.68, blue: 0.35, alpha: 1)
+        for v in board.vias {
+            let hs = v.endLayers.compactMap(height)
+            guard let lo = hs.min(), let hi = hs.max() else { continue }
+            barrel(at: v.position, radius: v.size / 2, from: lo, to: hi, color: viaColor)
+        }
+        let top = Float(n - 1) * Self.layerGap
+        for pad in board.pads where pad.kind == .thruHole {
+            guard let d = pad.drill else { continue }
+            barrel(at: pad.position, radius: d.diameter / 2 + 0.1, from: 0, to: top,
+                   color: NSColor(srgbRed: 0.75, green: 0.75, blue: 0.78, alpha: 1))
+        }
+        scene.rootNode.addChildNode(root)
+        expandedNode = root
+    }
 
     // MARK: Dimensions
 
